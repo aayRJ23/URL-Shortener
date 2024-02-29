@@ -32,12 +32,12 @@ function App() {
     fetch(url, options)
       .then((response) => {
         //display the shorted url
-        console.log(response);
+        // console.log(response);
         return response.json();
       })
       .then((data) => {
         //display the shorted url
-        console.log(data);
+        // console.log(data);
         setShortURL(data.shortedurl);
         setDone(true);
       })

@@ -1,8 +1,8 @@
 import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
-// import { firebaseApp } from "./firebase";
 import firebase from "./firebase.js";
+import shortid from "shortid";
 
 const app = express();
 
@@ -23,13 +23,14 @@ app.get("/", (req, res) => {
 app.post("/shorten", (req, res) => {
   //console.log(req.body.currentURL);
   const { currentURL } = req.body;
-
   //url shorten karo
-
-  //then firestore me save krlo
-  firebase(currentURL);
-
-  res.status(201).send({shortedurl:'abc' });
+  const hashed = shortid();
+  var shortURL = hashed.slice(0, 4);
+  console.log(`Short URL generated is : `, shortURL);
+  // mapping is saved between encoded and original url , then firestore me save krlo
+  firebase(currentURL, shortURL);
+  // shorted url ko return krdo
+  res.status(201).send({ shortedurl: shortURL });
 });
 
 const PORT = 4010;

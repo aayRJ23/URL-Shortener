@@ -14,11 +14,11 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 
-const writeData = async (currentURL) => {
+const writeData = async (currentURL,shortURL) => {
     try {
-      const docRef = await addDoc(collection(db, "samples"), {
+      const docRef = await addDoc(collection(db, "urls"), {
         url:currentURL,
-        shorturl : 'abc',
+        shorturl : shortURL,
       });
       console.log("Document written with ID: ", docRef.id);
     } catch (e) {
