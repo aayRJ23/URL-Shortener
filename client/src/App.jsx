@@ -6,6 +6,11 @@ function App() {
   const [shortURL, setShortURL] = useState("");
   const [done, setDone] = useState(false);
 
+  const handleRedirect = () => {
+    const url = `http://localhost:4010/${shortURL}`;
+    window.location.href = url;
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
 
@@ -71,7 +76,10 @@ function App() {
       <div>
         {done !== false && currentURL !== "" && (
           <div id="shortcode" className="mydiv">
-            Shorted URL : <a href="">http://localhost:3000/{shortURL}</a>
+            Shorted URL :
+            <button className="btn2" onClick={() => handleRedirect()}>
+              http://localhost:4010/{shortURL}
+            </button>
           </div>
         )}
       </div>
