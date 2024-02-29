@@ -6,6 +6,7 @@ import {
   getDocs,
   query,
   where,
+  updateDoc,
 } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -25,6 +26,7 @@ const writeData = async (currentURL, shortURL) => {
     const docRef = await addDoc(collection(db, "urls"), {
       url: currentURL,
       shorturl: shortURL,
+      tracknumber: 0,
     });
     console.log("Document written with ID: ", docRef.id);
   } catch (e) {
@@ -41,7 +43,17 @@ const findURL = async (shortURL) => {
       console.log("No matching document found for the short URL");
       return null;
     }
+
     const doc = querySnapshot.docs[0];
+    var surl = doc.data().shorturl;
+    const ref = doc.ref;
+
+    const tracknumber = doc.data().tracknumber || 0;
+
+    await updateDoc(ref, {
+      tracknumber: tracknumber + 1,
+    });
+
     const originalURL = doc.data().url;
     return originalURL;
   } catch (error) {

@@ -41,7 +41,6 @@ app.get("/:shortURL", async (req, res) => {
     const originalURL = await findURL(shortURL);
 
     if (originalURL === null) {
-      alert("No matching document found for the short URL");
       return res.status(404).send("Not Found");
     }
 
