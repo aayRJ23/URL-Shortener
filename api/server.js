@@ -38,13 +38,18 @@ app.get("/:shortURL", async (req, res) => {
   const shortURL = req.params.shortURL;
 
   try {
-    const originalURL = await findURL(shortURL);
+    const { originalURL, tracknumber } = await findURL(shortURL);
 
     if (originalURL === null) {
       return res.status(404).send("Not Found");
     }
 
     console.log("Redirecting to:", originalURL);
+    console.log(
+      "Till now , this website has been visited ",
+      tracknumber,
+      "times"
+    );
     res.redirect(originalURL);
   } catch (error) {
     console.error("Error redirecting to original URL:", error);

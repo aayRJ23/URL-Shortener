@@ -48,14 +48,15 @@ const findURL = async (shortURL) => {
     var surl = doc.data().shorturl;
     const ref = doc.ref;
 
-    const tracknumber = doc.data().tracknumber || 0;
+    var tracknumber = doc.data().tracknumber || 0;
 
     await updateDoc(ref, {
       tracknumber: tracknumber + 1,
     });
 
+    tracknumber=tracknumber+1;
     const originalURL = doc.data().url;
-    return originalURL;
+    return {originalURL,tracknumber};
   } catch (error) {
     console.error("Error retrieving document:", error);
   }
