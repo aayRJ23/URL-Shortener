@@ -1,32 +1,35 @@
 /**
  * db/urlRepository.js
+ * FIXED: All Firestore operations use Firebase Admin SDK.
  *
- * Fix: isUsernameTaken now uses TWO checks:
- *  1. Firestore "usernames" collection (for users who signed up after the feature)
- *  2. Firebase Admin Auth — lists users and checks displayName (catches legacy users
- *     who signed up before the "usernames" collection existed)
+ * Key fix in this version:
+ *  - isUsernameTaken now accepts an optional `claimerUid` param.
+ *  - When the Auth scan finds a match, if match.uid === claimerUid, it means
+ *    the user just set their own displayName and is legitimately claiming it.
+ *    In that case we do NOT treat it as taken — we just write the doc directly.
+ *  - claimUsername passes its uid into isUsernameTaken so the above applies.
+ *  - This fixes the bug where signup always failed because the Auth scan found
+ *    the just-created user and incorrectly blocked their own username claim.
  *
- * This dual-check means existing accounts like "admin5" will correctly
- * show as taken, even without a Firestore reservation doc.
+ *  - Also: orphaned username docs (backfilled:true but no matching Auth user)
+ *    are cleaned up automatically during isUsernameTaken checks.
  */
 
-import {
-  collection,
-  addDoc,
-  getDoc,
-  getDocs,
-  deleteDoc,
-  setDoc,
-  doc,
-  query,
-  where,
-  orderBy,
-  limit,
-  updateDoc,
-  serverTimestamp,
-} from "firebase/firestore";
-import { db }   from "../config/firebase.js";
-import admin    from "firebase-admin";
+import admin from "firebase-admin";
+import dotenv from "dotenv";
+dotenv.config();
+
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId:   process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey:  process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+    }),
+  });
+}
+
+const db = admin.firestore();
 
 const URLS_COLLECTION      = "urls";
 const USERNAMES_COLLECTION = "usernames";
@@ -36,43 +39,68 @@ const USERNAMES_COLLECTION = "usernames";
 /**
  * isUsernameTaken
  *
- * Check 1: Firestore "usernames" collection doc (new signups)
- * Check 2: Firebase Admin Auth — scan users by displayName (legacy accounts)
- *
- * Returns true if EITHER check finds the username.
- *
- * @param {string} username - already lowercased by caller
+ * @param {string} username     - already lowercased
+ * @param {string} [claimerUid] - UID of the user trying to claim this name.
+ *                                If the Auth scan finds this UID owning the name,
+ *                                it is NOT considered taken (they set their own displayName).
  * @returns {Promise<boolean>}
  */
-export const isUsernameTaken = async (username) => {
+export const isUsernameTaken = async (username, claimerUid = null) => {
   // ── Check 1: Firestore reservation doc ───────────────────────────────────
-  const docRef  = doc(db, USERNAMES_COLLECTION, username);
-  const docSnap = await getDoc(docRef);
-  if (docSnap.exists()) {
-    console.log(`[DB] Username "${username}" found in usernames collection`);
-    return true;
+  const docRef  = db.collection(USERNAMES_COLLECTION).doc(username);
+  const docSnap = await docRef.get();
+
+  if (docSnap.exists) {
+    const data = docSnap.data();
+
+    // If the doc belongs to the claimer themselves, not taken for them
+    if (claimerUid && data.uid === claimerUid) {
+      console.log(`[DB] Username "${username}" doc already owned by claimer ${claimerUid} — allowing`);
+      return false;
+    }
+
+    // Orphan cleanup: if doc is a backfill, verify the user still exists in Auth
+    if (data.backfilled) {
+      try {
+        await admin.auth().getUser(data.uid);
+        console.log(`[DB] Username "${username}" found in usernames collection (backfilled, user exists)`);
+        return true;
+      } catch {
+        // User was deleted (rollback) — orphaned doc, clean it up
+        console.log(`[DB] Username "${username}" orphan doc detected (user deleted) — removing`);
+        await docRef.delete();
+        // Fall through to Auth scan below
+      }
+    } else {
+      console.log(`[DB] Username "${username}" found in usernames collection`);
+      return true;
+    }
   }
 
   // ── Check 2: Firebase Admin Auth — find any user with this displayName ────
-  // listUsers returns up to 1000 users per page; for most apps one page is fine.
-  // We compare lowercased displayName to catch case variants.
   try {
     const listResult = await admin.auth().listUsers(1000);
     const match = listResult.users.find(
       (u) => u.displayName?.toLowerCase() === username
     );
+
     if (match) {
-      console.log(`[DB] Username "${username}" found in Firebase Auth (legacy user: ${match.uid})`);
-      // Backfill the Firestore doc so future checks are fast (no Auth scan needed)
-      await setDoc(doc(db, USERNAMES_COLLECTION, username), {
-        uid:       match.uid,
-        createdAt: serverTimestamp(),
+      // If this is the claimer's own account, NOT taken
+      if (claimerUid && match.uid === claimerUid) {
+        console.log(`[DB] Username "${username}" found in Auth but belongs to claimer — allowing`);
+        return false;
+      }
+
+      console.log(`[DB] Username "${username}" found in Firebase Auth (uid: ${match.uid})`);
+      // Backfill Firestore doc for fast future checks
+      await db.collection(USERNAMES_COLLECTION).doc(username).set({
+        uid:        match.uid,
+        createdAt:  admin.firestore.FieldValue.serverTimestamp(),
         backfilled: true,
       });
       return true;
     }
   } catch (err) {
-    // If Admin SDK fails for any reason, log but don't crash the check
     console.error("[DB] Admin listUsers failed during username check:", err.message);
   }
 
@@ -81,20 +109,20 @@ export const isUsernameTaken = async (username) => {
 
 /**
  * claimUsername
- * Atomically reserves a username doc in Firestore.
- * Throws "USERNAME_TAKEN" if already exists.
+ * Reserves a username doc in Firestore.
+ * Throws "USERNAME_TAKEN" if taken by someone else.
  *
  * @param {string} username - lowercased
- * @param {string} uid      - Firebase Auth UID
+ * @param {string} uid      - Firebase Auth UID of the claimer
  */
 export const claimUsername = async (username, uid) => {
-  // Re-run the full dual-check before claiming (race condition guard)
-  const taken = await isUsernameTaken(username);
+  // Pass uid so isUsernameTaken allows the claimer's own name through
+  const taken = await isUsernameTaken(username, uid);
   if (taken) throw new Error("USERNAME_TAKEN");
 
-  await setDoc(doc(db, USERNAMES_COLLECTION, username), {
+  await db.collection(USERNAMES_COLLECTION).doc(username).set({
     uid,
-    createdAt:  serverTimestamp(),
+    createdAt:  admin.firestore.FieldValue.serverTimestamp(),
     backfilled: false,
   });
 
@@ -104,37 +132,35 @@ export const claimUsername = async (username, uid) => {
 // ── URL operations ────────────────────────────────────────────────────────────
 
 export const createShortURL = async (originalURL, shortURL, userId, username) => {
-  const duplicateCheck = query(
-    collection(db, URLS_COLLECTION),
-    where("shortURL", "==", shortURL)
-  );
-  const existingDocs = await getDocs(duplicateCheck);
-  if (!existingDocs.empty) throw new Error("ALIAS_TAKEN");
+  const snapshot = await db.collection(URLS_COLLECTION)
+    .where("shortURL", "==", shortURL)
+    .get();
 
-  const docRef = await addDoc(collection(db, URLS_COLLECTION), {
+  if (!snapshot.empty) throw new Error("ALIAS_TAKEN");
+
+  const docRef = await db.collection(URLS_COLLECTION).add({
     url:         originalURL,
     shortURL:    shortURL,
     tracknumber: 0,
     userId:      userId,
     username:    username,
-    createdAt:   serverTimestamp(),
+    createdAt:   admin.firestore.FieldValue.serverTimestamp(),
   });
 
   console.log(`[DB] New URL saved. Doc ID: ${docRef.id}, Owner: ${username} (${userId})`);
 };
 
 export const findURLByShortCode = async (shortURL) => {
-  const q = query(
-    collection(db, URLS_COLLECTION),
-    where("shortURL", "==", shortURL)
-  );
-  const snapshot = await getDocs(q);
+  const snapshot = await db.collection(URLS_COLLECTION)
+    .where("shortURL", "==", shortURL)
+    .get();
+
   if (snapshot.empty) return null;
 
   const docSnap      = snapshot.docs[0];
   const currentCount = docSnap.data().tracknumber || 0;
   const updatedCount = currentCount + 1;
-  await updateDoc(docSnap.ref, { tracknumber: updatedCount });
+  await docSnap.ref.update({ tracknumber: updatedCount });
 
   return {
     originalURL: docSnap.data().url,
@@ -143,12 +169,11 @@ export const findURLByShortCode = async (shortURL) => {
 };
 
 export const getRecentURLs = async () => {
-  const q = query(
-    collection(db, URLS_COLLECTION),
-    orderBy("createdAt", "desc"),
-    limit(10)
-  );
-  const snapshot = await getDocs(q);
+  const snapshot = await db.collection(URLS_COLLECTION)
+    .orderBy("createdAt", "desc")
+    .limit(10)
+    .get();
+
   return snapshot.docs.map((doc) => ({
     id:          doc.id,
     originalURL: doc.data().url,
@@ -161,11 +186,10 @@ export const getRecentURLs = async () => {
 
 export const getMyURLs = async (userId) => {
   console.log(`[DB] Fetching URLs for userId: ${userId}`);
-  const q = query(
-    collection(db, URLS_COLLECTION),
-    where("userId", "==", userId)
-  );
-  const snapshot = await getDocs(q);
+  const snapshot = await db.collection(URLS_COLLECTION)
+    .where("userId", "==", userId)
+    .get();
+
   console.log(`[DB] Found ${snapshot.docs.length} docs for user ${userId}`);
 
   const results = snapshot.docs.map((doc) => ({
@@ -186,10 +210,10 @@ export const getMyURLs = async (userId) => {
 };
 
 export const deleteURL = async (docId, userId) => {
-  const docRef  = doc(db, URLS_COLLECTION, docId);
-  const docSnap = await getDoc(docRef);
-  if (!docSnap.exists())                 throw new Error("NOT_FOUND");
-  if (docSnap.data().userId !== userId)  throw new Error("FORBIDDEN");
-  await deleteDoc(docRef);
+  const docRef  = db.collection(URLS_COLLECTION).doc(docId);
+  const docSnap = await docRef.get();
+  if (!docSnap.exists)                  throw new Error("NOT_FOUND");
+  if (docSnap.data().userId !== userId) throw new Error("FORBIDDEN");
+  await docRef.delete();
   console.log(`[DB] Deleted doc: ${docId} by user: ${userId}`);
 };

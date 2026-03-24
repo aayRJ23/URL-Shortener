@@ -1,14 +1,13 @@
 // context/AuthContext.jsx
-// Updated signup flow:
-//  1. Check username availability (fast, before creating account)
-//  2. Create Firebase account
-//  3. Set displayName
-//  4. Get fresh token
-//  5. Reserve username in Firestore (POST /reserve-username)
-//  6. If Firestore reservation fails → delete the Firebase account (rollback)
-// This ensures email AND username are both unique with proper error messages.
+// FIXED:
+//  1. After successful signup, force-reload user before setting state
+//     so displayName is present on the user object immediately.
+//  2. onAuthStateChanged now skips setting user during active signup
+//     to prevent race conditions between signup steps and state updates.
+//  3. Rollback (deleteUser) correctly results in null user — login form shows,
+//     which is correct behavior when username is taken.
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, useRef } from "react";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -17,8 +16,8 @@ import {
   updateProfile,
   deleteUser,
 } from "firebase/auth";
-import { auth }                                        from "../firerbase";
-import { checkUsernameAvailable, reserveUsername }     from "../api/urlApi";
+import { auth }                                    from "../firerbase";
+import { checkUsernameAvailable, reserveUsername } from "../api/urlApi";
 
 const AuthContext = createContext(null);
 
@@ -26,8 +25,15 @@ export function AuthProvider({ children, onAuthEvent }) {
   const [user, setUser]       = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Flag: suppress onAuthStateChanged during the middle of signup steps
+  // to prevent partial state being set before the full flow completes.
+  const signingUpRef = useRef(false);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      // If we're in the middle of a signup, don't update state yet.
+      // The signup function will call setUser itself when done (or on rollback).
+      if (signingUpRef.current) return;
       setUser(firebaseUser);
       setLoading(false);
     });
@@ -36,15 +42,14 @@ export function AuthProvider({ children, onAuthEvent }) {
 
   /**
    * signup
-   *
-   * Full flow with username uniqueness guarantee:
-   *  Step 1 — Pre-check: is username already taken? (avoids wasted account creation)
-   *  Step 2 — Create Firebase Auth account (catches duplicate email automatically)
-   *  Step 3 — Set displayName on the new account
-   *  Step 4 — Get a fresh token (needed to call our protected API)
-   *  Step 5 — Reserve username in Firestore via POST /reserve-username
-   *  Step 6 — If reservation fails (race condition), delete the Firebase account
-   *            and throw so the UI shows an appropriate error
+   * Full atomic flow:
+   *  1. Pre-check username availability
+   *  2. Create Firebase Auth account
+   *  3. Set displayName
+   *  4. Reload user to get fresh claims
+   *  5. Get fresh ID token
+   *  6. Reserve username in Firestore via POST /reserve-username
+   *  7. On failure: delete Firebase account (rollback), clear user state
    */
   const signup = async (email, password, username) => {
     const cleanUsername = username.trim().toLowerCase();
@@ -56,45 +61,57 @@ export function AuthProvider({ children, onAuthEvent }) {
     } catch {
       throw new Error("Could not verify username. Is the server running?");
     }
-    if (!available) {
-      throw new Error("USERNAME_TAKEN");
-    }
+    if (!available) throw new Error("USERNAME_TAKEN");
 
-    // ── Step 2: create Firebase Auth account ─────────────────────────────────
-    // Firebase throws auth/email-already-in-use automatically here
+    // Mark that signup is in progress — suppress onAuthStateChanged handler
+    signingUpRef.current = true;
+
     let userCredential;
     try {
+      // ── Step 2: create Firebase Auth account ───────────────────────────────
       userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    } catch (err) {
-      throw err; // re-throw Firebase error codes as-is for AuthForm to map
-    }
 
-    // ── Step 3: set displayName ───────────────────────────────────────────────
-    await updateProfile(userCredential.user, { displayName: username.trim() });
-    await userCredential.user.reload();
+      // ── Step 3: set displayName ─────────────────────────────────────────────
+      await updateProfile(userCredential.user, { displayName: username.trim() });
 
-    // ── Step 4: get fresh token ───────────────────────────────────────────────
-    const token = await userCredential.user.getIdToken(true);
+      // ── Step 4: reload to get fresh user object with displayName ────────────
+      await userCredential.user.reload();
 
-    // ── Step 5: reserve username in Firestore ─────────────────────────────────
-    try {
+      // ── Step 5: get fresh ID token ──────────────────────────────────────────
+      const token = await userCredential.user.getIdToken(true);
+
+      // ── Step 6: reserve username in Firestore ───────────────────────────────
       await reserveUsername(cleanUsername, token);
-    } catch (err) {
-      // ── Step 6: rollback — delete the Firebase account we just created ──────
-      // This can happen if two users submit the exact same username in the same
-      // millisecond (race condition past step 1's pre-check).
-      console.error("[Auth] Username reservation failed — rolling back Firebase account:", err.message);
-      try {
-        await deleteUser(userCredential.user);
-      } catch (deleteErr) {
-        console.error("[Auth] Rollback deleteUser failed:", deleteErr.message);
-      }
-      throw new Error("USERNAME_TAKEN");
-    }
 
-    // ── Done: update state with the real Firebase user object ─────────────────
-    setUser(auth.currentUser);
-    onAuthEvent?.("signup", username.trim());
+      // ── Success: update state with fully-set-up user ────────────────────────
+      signingUpRef.current = false;
+      setUser(auth.currentUser);
+      setLoading(false);
+      onAuthEvent?.("signup", username.trim());
+
+    } catch (err) {
+      signingUpRef.current = false;
+
+      // If we created the Firebase account but something after failed, roll back
+      if (userCredential?.user) {
+        console.error("[Auth] Signup step failed — rolling back Firebase account:", err.message);
+        try {
+          await deleteUser(userCredential.user);
+        } catch (deleteErr) {
+          console.error("[Auth] Rollback deleteUser failed:", deleteErr.message);
+        }
+        // Explicitly set user to null — the auth state may not fire again
+        setUser(null);
+        setLoading(false);
+
+        // Map reservation failure to USERNAME_TAKEN
+        if (err.message === "This username is already taken." || err.message === "USERNAME_TAKEN") {
+          throw new Error("USERNAME_TAKEN");
+        }
+      }
+
+      throw err; // re-throw original Firebase error codes (email-in-use etc.)
+    }
   };
 
   const login = async (email, password) => {

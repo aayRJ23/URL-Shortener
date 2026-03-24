@@ -1,34 +1,26 @@
 /**
  * config/firebase.js
- *
- * Responsible ONLY for initializing the Firebase app and exporting:
- *  - db   → Firestore database instance (used by urlRepository)
- *  - auth → Firebase Auth instance (used by authMiddleware)
- *
- * No business logic lives here — just setup.
+ * FIXED: Server-side only uses Firebase Admin SDK.
+ * The client SDK Firestore import is removed — all DB ops are in urlRepository.js
+ * via Admin SDK. This file is now only needed if any route still imports from here.
+ * Admin SDK is initialized in authMiddleware.js and urlRepository.js (guarded).
  */
 
-import { initializeApp } from "firebase/app";
-import { getFirestore }   from "firebase/firestore";
-import { getAuth }        from "firebase/auth";
+import admin from "firebase-admin";
 import dotenv from "dotenv";
-
 dotenv.config();
 
-const firebaseConfig = {
-  apiKey:            process.env.FIREBASE_API_KEY,
-  authDomain:        process.env.FIREBASE_AUTH_DOMAIN,
-  projectId:         process.env.FIREBASE_PROJECT_ID,
-  storageBucket:     process.env.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId:             process.env.FIREBASE_APP_ID,
-};
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId:   process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey:  process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+    }),
+  });
+}
 
-const firebaseApp = initializeApp(firebaseConfig);
+const db   = admin.firestore();
+const auth = admin.auth();
 
-// db   → used in db/urlRepository.js for all Firestore queries
-// auth → used in middlewares/authMiddleware.js to verify tokens
-const db   = getFirestore(firebaseApp);
-const auth = getAuth(firebaseApp);
-
-export { firebaseApp, db, auth };
+export { db, auth };
