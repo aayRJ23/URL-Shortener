@@ -685,3 +685,149 @@ body {
   border-color: var(--green) !important;
   box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.1) !important;
 }
+
+
+/* Google Sign-In Button */
+.btn-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 16px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), box-shadow var(--transition);
+  margin-bottom: 4px;
+}
+
+.btn-google:hover:not(:disabled) {
+  background: #f8f8f6;
+  border-color: #c8c8c4;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-google:active:not(:disabled) {
+  background: #f0f0ee;
+}
+
+.btn-google:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-google--loading {
+  pointer-events: none;
+}
+
+/* "or" divider between Google button and email form */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 14px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Dark spinner variant for light backgrounds (Google button) */
+.spinner--dark {
+  border-color: #e0e0e0;
+  border-top-color: #444;
+}
+
+
+/* Delete button — solid dark, always visible */
+.btn-delete {
+  background: none;
+  border: 1.5px solid #d1d1cc;
+  cursor: pointer;
+  font-size: 0.88rem;
+  opacity: 1 !important;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: #444442;
+  transition: all var(--transition);
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+ 
+.btn-delete:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+ 
+/* Inline copy button — dark border + dark icon, always visible */
+.btn-copy-inline {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1.5px solid #c8c8c4;
+  background: var(--white);
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: #333332;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+  line-height: 1;
+}
+ 
+.btn-copy-inline:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.07);
+}
+ 
+.btn-copy-inline--done {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #ffffff;
+}
+ 
+/* Result box copy button — ensure it's clearly visible too */
+.btn-copy {
+  padding: 7px 18px;
+  border-radius: 99px;
+  border: 1.5px solid #333332;
+  background: #111110;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: #ffffff;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+ 
+.btn-copy:hover {
+  background: #2d2d2b;
+  border-color: #2d2d2b;
+  color: #ffffff;
+}
+ 
+.btn-copy--done {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #ffffff;
+}
+ 

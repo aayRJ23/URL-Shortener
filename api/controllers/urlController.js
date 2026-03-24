@@ -1,6 +1,6 @@
 /**
  * controllers/urlController.js
- * Fix: removed dynamic import() calls — all imports are now static at top level.
+ * Added: hasUsername handler for GET /has-username
  */
 
 import { nanoid } from "nanoid";
@@ -14,13 +14,9 @@ import {
   claimUsername,
 } from "../db/urlRepository.js";
 
-/**
- * shortenURL — POST /shorten (protected)
- * Always prefixes shortcode with username.
- */
 const shortenURL = async (req, res) => {
   const { currentURL, customAlias } = req.body;
-  const { uid: userId, username } = req.user;
+  const { uid: userId, username }   = req.user;
 
   const suffix   = customAlias ? customAlias.trim() : nanoid(5);
   const shortURL = `${username}-${suffix}`;
@@ -40,9 +36,6 @@ const shortenURL = async (req, res) => {
   }
 };
 
-/**
- * redirectURL — GET /:shortURL (public)
- */
 const redirectURL = async (req, res) => {
   const { shortURL } = req.params;
   try {
@@ -57,9 +50,6 @@ const redirectURL = async (req, res) => {
   }
 };
 
-/**
- * getRecent — GET /recent (public)
- */
 const getRecent = async (req, res) => {
   try {
     const urls = await getRecentURLs();
@@ -70,9 +60,6 @@ const getRecent = async (req, res) => {
   }
 };
 
-/**
- * getMyLinks — GET /my-links (protected)
- */
 const getMyLinks = async (req, res) => {
   const { uid: userId } = req.user;
   try {
@@ -84,9 +71,6 @@ const getMyLinks = async (req, res) => {
   }
 };
 
-/**
- * deleteMyLink — DELETE /my-links/:id (protected)
- */
 const deleteMyLink = async (req, res) => {
   const { id }          = req.params;
   const { uid: userId } = req.user;
@@ -101,17 +85,11 @@ const deleteMyLink = async (req, res) => {
   }
 };
 
-/**
- * checkUsername — GET /check-username?username=xxx (public)
- * Returns { available: true/false }
- */
 const checkUsername = async (req, res) => {
   const { username } = req.query;
-
   if (!username || username.trim().length < 3) {
     return res.status(400).json({ error: "Username must be at least 3 characters." });
   }
-
   try {
     const taken = await isUsernameTaken(username.trim().toLowerCase());
     res.status(200).json({ available: !taken });
@@ -121,10 +99,6 @@ const checkUsername = async (req, res) => {
   }
 };
 
-/**
- * reserveUsername — POST /reserve-username (protected)
- * Atomically claims a username in Firestore after account creation.
- */
 const reserveUsername = async (req, res) => {
   const { username }    = req.body;
   const { uid: userId } = req.user;
@@ -132,7 +106,6 @@ const reserveUsername = async (req, res) => {
   if (!username || username.trim().length < 3) {
     return res.status(400).json({ error: "Username must be at least 3 characters." });
   }
-
   try {
     await claimUsername(username.trim().toLowerCase(), userId);
     res.status(201).json({ message: "Username reserved." });
@@ -145,4 +118,23 @@ const reserveUsername = async (req, res) => {
   }
 };
 
-export { shortenURL, redirectURL, getRecent, getMyLinks, deleteMyLink, checkUsername, reserveUsername };
+/**
+ * hasUsername — GET /has-username (protected)
+ * Returns { hasUsername: true/false }
+ * Used by Google sign-in to detect returning vs new Google users.
+ */
+const hasUsername = async (req, res) => {
+  const { uid: userId } = req.user;
+  try {
+    // Search usernames collection for a doc with this uid
+    const admin = (await import("firebase-admin")).default;
+    const db    = admin.firestore();
+    const snap  = await db.collection("usernames").where("uid", "==", userId).limit(1).get();
+    res.status(200).json({ hasUsername: !snap.empty });
+  } catch (error) {
+    console.error("[Controller] Error checking hasUsername:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+export { shortenURL, redirectURL, getRecent, getMyLinks, deleteMyLink, checkUsername, reserveUsername, hasUsername };
