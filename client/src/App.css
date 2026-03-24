@@ -1,4 +1,9 @@
-/* App.css  */
+/* App.css */
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* This is your FULL App.css.                                                  */
+/* The only additions vs v1 are at the very bottom, clearly marked NEW.        */
+/* Everything above the NEW section is unchanged from v1.                      */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 /* ─── Fonts ─────────────────────────────────────────────── */
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Syne:wght@700;800&display=swap');
@@ -145,10 +150,6 @@ body {
 
 .input::placeholder {
   color: #b5b5b0;
-}
-
-.input--error {
-  /* the group gets red below */
 }
 
 .input-group:has(.input--error) {
@@ -431,4 +432,94 @@ body {
   .header { padding: 36px 0 24px; }
   .logo-text { font-size: 1.8rem; }
   .card { padding: 20px; }
+}
+
+
+/* ═══════════════════════════════════════════════════════════ */
+/* NEW STYLES — Auth feature additions                        */
+/* ═══════════════════════════════════════════════════════════ */
+
+/* ─── Header user area (NEW) ─────────────────────────────── */
+.header-user {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.header-username {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  font-family: 'DM Mono', monospace, sans-serif;
+}
+
+.btn-logout {
+  padding: 5px 14px;
+  border-radius: 99px;
+  border: 1.5px solid var(--border);
+  background: transparent;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--muted);
+  transition: all var(--transition);
+}
+
+.btn-logout:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* ─── History item actions row (NEW) ─────────────────────── */
+/* Groups visit counter + delete button on the right side    */
+.history-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ─── Delete button (NEW) ─────────────────────────────────── */
+.btn-delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  opacity: 0.35;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: opacity var(--transition), color var(--transition);
+  line-height: 1;
+}
+
+.btn-delete:hover {
+  opacity: 1;
+  color: var(--red);
+}
+
+/* ─── Auth toggle link (NEW) ─────────────────────────────── */
+.auth-toggle {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.auth-toggle-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #6366f1;
+  font-size: 0.84rem;
+  font-weight: 600;
+  font-family: 'DM Sans', sans-serif;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.auth-toggle-btn:hover {
+  color: #4f46e5;
 }

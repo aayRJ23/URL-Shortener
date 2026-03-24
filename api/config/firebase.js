@@ -1,15 +1,16 @@
 /**
  * config/firebase.js
  *
- * Responsible ONLY for initializing the Firebase app and exporting
- * the Firestore database instance.
+ * Responsible ONLY for initializing the Firebase app and exporting:
+ *  - db   → Firestore database instance (used by urlRepository)
+ *  - auth → Firebase Auth instance (used by authMiddleware)
  *
  * No business logic lives here — just setup.
- * Import `db` anywhere you need to talk to Firestore.
  */
 
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore }   from "firebase/firestore";
+import { getAuth }        from "firebase/auth";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -25,7 +26,9 @@ const firebaseConfig = {
 
 const firebaseApp = initializeApp(firebaseConfig);
 
-// db is the single Firestore instance used across the whole app
-const db = getFirestore(firebaseApp);
+// db   → used in db/urlRepository.js for all Firestore queries
+// auth → used in middlewares/authMiddleware.js to verify tokens
+const db   = getFirestore(firebaseApp);
+const auth = getAuth(firebaseApp);
 
-export { firebaseApp, db };
+export { firebaseApp, db, auth };

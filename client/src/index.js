@@ -1,17 +1,28 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './index.css';
-import App from './App';
-import reportWebVitals from './reportWebVitals';
+// index.js
+// ─────────────────────────────────────────────────────────────
+// Entry point of the React app.
+//
+// Changes from v1:
+//  - Wrapped <App /> with <AuthProvider> so every component
+//    in the tree can access auth state via useAuth()
+// ─────────────────────────────────────────────────────────────
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
+import React            from "react";
+import ReactDOM         from "react-dom/client";
+import "./index.css";
+import App              from "./App";
+import { AuthProvider } from "./context/AuthContext";  // NEW
+import reportWebVitals  from "./reportWebVitals";
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+
 root.render(
   <React.StrictMode>
-    <App />
+    {/* AuthProvider must wrap App so useAuth() works everywhere */}
+    <AuthProvider>
+      <App />
+    </AuthProvider>
   </React.StrictMode>
 );
 
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
 reportWebVitals();

@@ -1,21 +1,21 @@
 /**
  * controllers/urlController.js
  *
- * This is the BUSINESS LOGIC LAYER.
+ * BUSINESS LOGIC LAYER — sits between routes and the DB repository.
  *
- * Controllers sit between the route definitions and the database.
- * Each function here:
- *  1. Reads data from the request (req)
- *  2. Calls the repository (DB layer) to do actual data work
- *  3. Sends back an appropriate HTTP response (res)
- *
- * Controllers do NOT import Firestore directly.
- * Controllers do NOT define routes.
+ * Changes from v1:
+ *  - shortenURL now reads userId + username from req.user (set by verifyToken middleware)
+ *  - shortenURL now prefixes custom alias with username automatically
+ *  - getRecent is unchanged (global, public)
+ *  - getMyLinks is NEW → returns only the logged-in user's URLs
+ *  - deleteMyLink is NEW → deletes a user's own link (with ownership check in repo)
  *
  * Functions exported:
- *  - shortenURL   → handles POST /shorten
- *  - redirectURL  → handles GET /:shortURL
- *  - getRecent    → handles GET /recent
+ *  - shortenURL    → POST /shorten       (protected)
+ *  - redirectURL   → GET  /:shortURL     (public)
+ *  - getRecent     → GET  /recent        (public, unchanged)
+ *  - getMyLinks    → GET  /my-links      (protected, NEW)
+ *  - deleteMyLink  → DELETE /my-links/:id (protected, NEW)
  */
 
 import { nanoid } from "nanoid";
@@ -23,33 +23,46 @@ import {
   createShortURL,
   findURLByShortCode,
   getRecentURLs,
+  getMyURLs,
+  deleteURL,
 } from "../db/urlRepository.js";
 
 /**
  * shortenURL
  *
  * Accepts a long URL and an optional custom alias.
- * Generates a random short code if no alias is provided.
- * Delegates saving to the repository.
+ * If customAlias is provided, it is prefixed with the username:
+ *   username="aayush", alias="my-link" → shortCode="aayush-my-link"
+ * If no alias, a random 5-char nanoid is used.
+ *
+ * Requires: verifyToken middleware (req.user must be set)
  *
  * POST /shorten
  * Body: { currentURL: string, customAlias?: string }
+ * Headers: Authorization: Bearer <token>
  */
 const shortenURL = async (req, res) => {
   const { currentURL, customAlias } = req.body;
 
-  // Use custom alias if provided, otherwise auto-generate a 5-char ID
-  const shortURL = customAlias ? customAlias.trim() : nanoid(5);
+  // req.user is attached by verifyToken middleware
+  const { uid: userId, username } = req.user;
+
+  // Build the final short code:
+  //  - custom alias → prefix with "username-" so it's namespaced
+  //  - no alias     → random 5-char id (no prefix needed, stays short)
+  const shortURL = customAlias
+    ? `${username}-${customAlias.trim()}`
+    : nanoid(5);
 
   try {
-    await createShortURL(currentURL, shortURL);
-    console.log(`[Controller] Shortened: ${currentURL} → ${shortURL}`);
+    await createShortURL(currentURL, shortURL, userId, username);
+    console.log(`[Controller] Shortened: ${currentURL} → ${shortURL} (by ${username})`);
     res.status(201).json({ shortedurl: shortURL });
   } catch (error) {
     if (error.message === "ALIAS_TAKEN") {
-      // The alias was already taken — tell the client clearly
+      // The alias (after prefixing) was already taken — tell the client clearly
       return res.status(409).json({
-        error: "Custom alias already taken. Please try a different one.",
+        error: `Alias "${shortURL}" already taken. Please try a different one.`,
       });
     }
     console.error("[Controller] Error shortening URL:", error);
@@ -60,8 +73,8 @@ const shortenURL = async (req, res) => {
 /**
  * redirectURL
  *
- * Looks up the short code from the URL params,
- * and redirects the user to the original URL.
+ * Looks up the short code from the URL params and redirects.
+ * Public — no auth required.
  *
  * GET /:shortURL
  */
@@ -72,7 +85,6 @@ const redirectURL = async (req, res) => {
     const result = await findURLByShortCode(shortURL);
 
     if (!result) {
-      // Short URL doesn't exist in our database
       return res.status(404).json({ error: "Short URL not found." });
     }
 
@@ -90,8 +102,8 @@ const redirectURL = async (req, res) => {
 /**
  * getRecent
  *
- * Returns the 10 most recently created short URLs.
- * Useful for showing a history/dashboard on the frontend.
+ * Returns the 10 most recently created short URLs globally.
+ * Public — no auth required. Unchanged from v1.
  *
  * GET /recent
  */
@@ -105,4 +117,57 @@ const getRecent = async (req, res) => {
   }
 };
 
-export { shortenURL, redirectURL, getRecent };
+/**
+ * getMyLinks  (NEW)
+ *
+ * Returns ALL links created by the currently logged-in user.
+ * Reads userId from req.user (set by verifyToken middleware).
+ *
+ * Requires: verifyToken middleware
+ *
+ * GET /my-links
+ */
+const getMyLinks = async (req, res) => {
+  const { uid: userId } = req.user;
+
+  try {
+    const urls = await getMyURLs(userId);
+    res.status(200).json(urls);
+  } catch (error) {
+    console.error("[Controller] Error fetching user links:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+/**
+ * deleteMyLink  (NEW)
+ *
+ * Deletes a specific link by its Firestore document ID.
+ * The repo layer checks ownership — users cannot delete others' links.
+ *
+ * Requires: verifyToken middleware
+ *
+ * DELETE /my-links/:id
+ * Params: id → Firestore document ID
+ */
+const deleteMyLink = async (req, res) => {
+  const { id }         = req.params;  // Firestore doc ID
+  const { uid: userId } = req.user;   // from verifyToken
+
+  try {
+    await deleteURL(id, userId);
+    res.status(200).json({ message: "Link deleted successfully." });
+  } catch (error) {
+    if (error.message === "NOT_FOUND") {
+      return res.status(404).json({ error: "Link not found." });
+    }
+    if (error.message === "FORBIDDEN") {
+      // User tried to delete someone else's link
+      return res.status(403).json({ error: "You do not own this link." });
+    }
+    console.error("[Controller] Error deleting link:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+export { shortenURL, redirectURL, getRecent, getMyLinks, deleteMyLink };
