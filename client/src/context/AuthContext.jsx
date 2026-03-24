@@ -1,16 +1,12 @@
 // context/AuthContext.jsx
-// ─────────────────────────────────────────────────────────────
-// Provides Firebase Auth state globally across the app.
-//
-// What this does:
-//  - Listens to Firebase Auth state changes (login/logout)
-//  - Stores the current user object + loading state
-//  - Exposes login, signup, logout functions
-//  - Any component can call useAuth() to access these
-//
-// Usage:
-//   const { user, login, signup, logout } = useAuth();
-// ─────────────────────────────────────────────────────────────
+// Updated signup flow:
+//  1. Check username availability (fast, before creating account)
+//  2. Create Firebase account
+//  3. Set displayName
+//  4. Get fresh token
+//  5. Reserve username in Firestore (POST /reserve-username)
+//  6. If Firestore reservation fails → delete the Firebase account (rollback)
+// This ensures email AND username are both unique with proper error messages.
 
 import { createContext, useContext, useEffect, useState } from "react";
 import {
@@ -19,72 +15,99 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
+  deleteUser,
 } from "firebase/auth";
-import { auth } from "../firerbase";
+import { auth }                                        from "../firerbase";
+import { checkUsernameAvailable, reserveUsername }     from "../api/urlApi";
 
-// Create the context object
 const AuthContext = createContext(null);
 
-/**
- * AuthProvider
- *
- * Wrap your entire app with this (in index.js) so every component
- * can access auth state via useAuth().
- */
-export function AuthProvider({ children }) {
-  const [user, setUser]       = useState(null);   // Firebase user object or null
-  const [loading, setLoading] = useState(true);   // true until Firebase resolves initial state
+export function AuthProvider({ children, onAuthEvent }) {
+  const [user, setUser]       = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  // Listen to auth state changes (fires on login, logout, page reload)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);   // null if logged out, user object if logged in
-      setLoading(false);       // Firebase has resolved the initial auth state
+      setUser(firebaseUser);
+      setLoading(false);
     });
-
-    // Cleanup the listener when the component unmounts
     return () => unsubscribe();
   }, []);
 
   /**
    * signup
-   * Creates a new Firebase user and sets their displayName (username).
-   * displayName is what gets embedded in the short code prefix.
    *
-   * @param {string} email
-   * @param {string} password
-   * @param {string} username - stored as Firebase displayName
+   * Full flow with username uniqueness guarantee:
+   *  Step 1 — Pre-check: is username already taken? (avoids wasted account creation)
+   *  Step 2 — Create Firebase Auth account (catches duplicate email automatically)
+   *  Step 3 — Set displayName on the new account
+   *  Step 4 — Get a fresh token (needed to call our protected API)
+   *  Step 5 — Reserve username in Firestore via POST /reserve-username
+   *  Step 6 — If reservation fails (race condition), delete the Firebase account
+   *            and throw so the UI shows an appropriate error
    */
   const signup = async (email, password, username) => {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    // Set displayName immediately after account creation
-    await updateProfile(userCredential.user, { displayName: username });
-    // Re-read the user so displayName is reflected in the state
-    setUser({ ...userCredential.user, displayName: username });
+    const cleanUsername = username.trim().toLowerCase();
+
+    // ── Step 1: pre-check username availability ──────────────────────────────
+    let available;
+    try {
+      available = await checkUsernameAvailable(cleanUsername);
+    } catch {
+      throw new Error("Could not verify username. Is the server running?");
+    }
+    if (!available) {
+      throw new Error("USERNAME_TAKEN");
+    }
+
+    // ── Step 2: create Firebase Auth account ─────────────────────────────────
+    // Firebase throws auth/email-already-in-use automatically here
+    let userCredential;
+    try {
+      userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    } catch (err) {
+      throw err; // re-throw Firebase error codes as-is for AuthForm to map
+    }
+
+    // ── Step 3: set displayName ───────────────────────────────────────────────
+    await updateProfile(userCredential.user, { displayName: username.trim() });
+    await userCredential.user.reload();
+
+    // ── Step 4: get fresh token ───────────────────────────────────────────────
+    const token = await userCredential.user.getIdToken(true);
+
+    // ── Step 5: reserve username in Firestore ─────────────────────────────────
+    try {
+      await reserveUsername(cleanUsername, token);
+    } catch (err) {
+      // ── Step 6: rollback — delete the Firebase account we just created ──────
+      // This can happen if two users submit the exact same username in the same
+      // millisecond (race condition past step 1's pre-check).
+      console.error("[Auth] Username reservation failed — rolling back Firebase account:", err.message);
+      try {
+        await deleteUser(userCredential.user);
+      } catch (deleteErr) {
+        console.error("[Auth] Rollback deleteUser failed:", deleteErr.message);
+      }
+      throw new Error("USERNAME_TAKEN");
+    }
+
+    // ── Done: update state with the real Firebase user object ─────────────────
+    setUser(auth.currentUser);
+    onAuthEvent?.("signup", username.trim());
   };
 
-  /**
-   * login
-   * Signs in an existing user with email + password.
-   */
-  const login = (email, password) => {
-    return signInWithEmailAndPassword(auth, email, password);
+  const login = async (email, password) => {
+    const result = await signInWithEmailAndPassword(auth, email, password);
+    onAuthEvent?.("login", result.user.displayName || result.user.email);
+    return result;
   };
 
-  /**
-   * logout
-   * Signs the user out. onAuthStateChanged will fire and set user → null.
-   */
-  const logout = () => {
-    return signOut(auth);
+  const logout = async () => {
+    await signOut(auth);
+    onAuthEvent?.("logout");
   };
 
-  /**
-   * getToken
-   * Returns the current user's Firebase ID token.
-   * Call this before any protected API request.
-   * Firebase auto-refreshes tokens — this always returns a valid one.
-   */
   const getToken = async () => {
     if (!user) return null;
     return user.getIdToken();
@@ -92,8 +115,6 @@ export function AuthProvider({ children }) {
 
   const value = { user, loading, signup, login, logout, getToken };
 
-  // Don't render children until Firebase resolves the initial auth state
-  // This prevents a flash of "logged out" UI on page reload
   return (
     <AuthContext.Provider value={value}>
       {!loading && children}
@@ -101,11 +122,6 @@ export function AuthProvider({ children }) {
   );
 }
 
-/**
- * useAuth
- * Custom hook for consuming AuthContext.
- * Use this in any component instead of useContext(AuthContext) directly.
- */
 export function useAuth() {
   return useContext(AuthContext);
 }

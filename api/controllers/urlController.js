@@ -1,21 +1,6 @@
 /**
  * controllers/urlController.js
- *
- * BUSINESS LOGIC LAYER — sits between routes and the DB repository.
- *
- * Changes from v1:
- *  - shortenURL now reads userId + username from req.user (set by verifyToken middleware)
- *  - shortenURL now prefixes custom alias with username automatically
- *  - getRecent is unchanged (global, public)
- *  - getMyLinks is NEW → returns only the logged-in user's URLs
- *  - deleteMyLink is NEW → deletes a user's own link (with ownership check in repo)
- *
- * Functions exported:
- *  - shortenURL    → POST /shorten       (protected)
- *  - redirectURL   → GET  /:shortURL     (public)
- *  - getRecent     → GET  /recent        (public, unchanged)
- *  - getMyLinks    → GET  /my-links      (protected, NEW)
- *  - deleteMyLink  → DELETE /my-links/:id (protected, NEW)
+ * Fix: removed dynamic import() calls — all imports are now static at top level.
  */
 
 import { nanoid } from "nanoid";
@@ -25,34 +10,20 @@ import {
   getRecentURLs,
   getMyURLs,
   deleteURL,
+  isUsernameTaken,
+  claimUsername,
 } from "../db/urlRepository.js";
 
 /**
- * shortenURL
- *
- * Accepts a long URL and an optional custom alias.
- * If customAlias is provided, it is prefixed with the username:
- *   username="aayush", alias="my-link" → shortCode="aayush-my-link"
- * If no alias, a random 5-char nanoid is used.
- *
- * Requires: verifyToken middleware (req.user must be set)
- *
- * POST /shorten
- * Body: { currentURL: string, customAlias?: string }
- * Headers: Authorization: Bearer <token>
+ * shortenURL — POST /shorten (protected)
+ * Always prefixes shortcode with username.
  */
 const shortenURL = async (req, res) => {
   const { currentURL, customAlias } = req.body;
-
-  // req.user is attached by verifyToken middleware
   const { uid: userId, username } = req.user;
 
-  // Build the final short code:
-  //  - custom alias → prefix with "username-" so it's namespaced
-  //  - no alias     → random 5-char id (no prefix needed, stays short)
-  const shortURL = customAlias
-    ? `${username}-${customAlias.trim()}`
-    : nanoid(5);
+  const suffix   = customAlias ? customAlias.trim() : nanoid(5);
+  const shortURL = `${username}-${suffix}`;
 
   try {
     await createShortURL(currentURL, shortURL, userId, username);
@@ -60,7 +31,6 @@ const shortenURL = async (req, res) => {
     res.status(201).json({ shortedurl: shortURL });
   } catch (error) {
     if (error.message === "ALIAS_TAKEN") {
-      // The alias (after prefixing) was already taken — tell the client clearly
       return res.status(409).json({
         error: `Alias "${shortURL}" already taken. Please try a different one.`,
       });
@@ -71,27 +41,15 @@ const shortenURL = async (req, res) => {
 };
 
 /**
- * redirectURL
- *
- * Looks up the short code from the URL params and redirects.
- * Public — no auth required.
- *
- * GET /:shortURL
+ * redirectURL — GET /:shortURL (public)
  */
 const redirectURL = async (req, res) => {
   const { shortURL } = req.params;
-
   try {
     const result = await findURLByShortCode(shortURL);
-
-    if (!result) {
-      return res.status(404).json({ error: "Short URL not found." });
-    }
-
+    if (!result) return res.status(404).json({ error: "Short URL not found." });
     const { originalURL, tracknumber } = result;
     console.log(`[Controller] Redirecting to: ${originalURL} (visit #${tracknumber})`);
-
-    // 302 redirect → browser goes to the original URL
     res.redirect(originalURL);
   } catch (error) {
     console.error("[Controller] Error during redirect:", error);
@@ -100,12 +58,7 @@ const redirectURL = async (req, res) => {
 };
 
 /**
- * getRecent
- *
- * Returns the 10 most recently created short URLs globally.
- * Public — no auth required. Unchanged from v1.
- *
- * GET /recent
+ * getRecent — GET /recent (public)
  */
 const getRecent = async (req, res) => {
   try {
@@ -118,18 +71,10 @@ const getRecent = async (req, res) => {
 };
 
 /**
- * getMyLinks  (NEW)
- *
- * Returns ALL links created by the currently logged-in user.
- * Reads userId from req.user (set by verifyToken middleware).
- *
- * Requires: verifyToken middleware
- *
- * GET /my-links
+ * getMyLinks — GET /my-links (protected)
  */
 const getMyLinks = async (req, res) => {
   const { uid: userId } = req.user;
-
   try {
     const urls = await getMyURLs(userId);
     res.status(200).json(urls);
@@ -140,34 +85,64 @@ const getMyLinks = async (req, res) => {
 };
 
 /**
- * deleteMyLink  (NEW)
- *
- * Deletes a specific link by its Firestore document ID.
- * The repo layer checks ownership — users cannot delete others' links.
- *
- * Requires: verifyToken middleware
- *
- * DELETE /my-links/:id
- * Params: id → Firestore document ID
+ * deleteMyLink — DELETE /my-links/:id (protected)
  */
 const deleteMyLink = async (req, res) => {
-  const { id }         = req.params;  // Firestore doc ID
-  const { uid: userId } = req.user;   // from verifyToken
-
+  const { id }          = req.params;
+  const { uid: userId } = req.user;
   try {
     await deleteURL(id, userId);
     res.status(200).json({ message: "Link deleted successfully." });
   } catch (error) {
-    if (error.message === "NOT_FOUND") {
-      return res.status(404).json({ error: "Link not found." });
-    }
-    if (error.message === "FORBIDDEN") {
-      // User tried to delete someone else's link
-      return res.status(403).json({ error: "You do not own this link." });
-    }
+    if (error.message === "NOT_FOUND") return res.status(404).json({ error: "Link not found." });
+    if (error.message === "FORBIDDEN") return res.status(403).json({ error: "You do not own this link." });
     console.error("[Controller] Error deleting link:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
 
-export { shortenURL, redirectURL, getRecent, getMyLinks, deleteMyLink };
+/**
+ * checkUsername — GET /check-username?username=xxx (public)
+ * Returns { available: true/false }
+ */
+const checkUsername = async (req, res) => {
+  const { username } = req.query;
+
+  if (!username || username.trim().length < 3) {
+    return res.status(400).json({ error: "Username must be at least 3 characters." });
+  }
+
+  try {
+    const taken = await isUsernameTaken(username.trim().toLowerCase());
+    res.status(200).json({ available: !taken });
+  } catch (error) {
+    console.error("[Controller] Error checking username:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+/**
+ * reserveUsername — POST /reserve-username (protected)
+ * Atomically claims a username in Firestore after account creation.
+ */
+const reserveUsername = async (req, res) => {
+  const { username }    = req.body;
+  const { uid: userId } = req.user;
+
+  if (!username || username.trim().length < 3) {
+    return res.status(400).json({ error: "Username must be at least 3 characters." });
+  }
+
+  try {
+    await claimUsername(username.trim().toLowerCase(), userId);
+    res.status(201).json({ message: "Username reserved." });
+  } catch (error) {
+    if (error.message === "USERNAME_TAKEN") {
+      return res.status(409).json({ error: "This username is already taken." });
+    }
+    console.error("[Controller] Error reserving username:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+export { shortenURL, redirectURL, getRecent, getMyLinks, deleteMyLink, checkUsername, reserveUsername };

@@ -1,20 +1,11 @@
 /**
  * routes/urlRoutes.js
  *
- * Defines all URL paths and maps them to controller functions.
+ * Added:
+ *  - GET  /check-username  → public, check if username is available
+ *  - POST /reserve-username → protected, claim username after signup
  *
- * Changes from v1:
- *  - POST /shorten now goes through verifyToken (auth required)
- *  - GET  /my-links is NEW (auth required) → personal dashboard
- *  - DELETE /my-links/:id is NEW (auth required) → delete own link
- *  - GET  /recent stays public (no auth needed)
- *  - GET  /:shortURL stays public (redirect, no auth needed)
- *
- * Middleware order matters:
- *  verifyToken → validateURL → controller
- *
- * NOTE: /recent and /my-links MUST come before /:shortURL
- *       otherwise Express swallows them as short code lookups.
+ * NOTE: these must come before /:shortURL to avoid being swallowed.
  */
 
 import { Router } from "express";
@@ -24,35 +15,27 @@ import {
   getRecent,
   getMyLinks,
   deleteMyLink,
+  checkUsername,
+  reserveUsername,
 } from "../controllers/urlController.js";
 import { validateURL }  from "../middlewares/validateURL.js";
 import { verifyToken }  from "../middlewares/authMiddleware.js";
 
 const router = Router();
 
-// ── Protected Routes (login required) ─────────────────────────────────────────
+// ── Username check (public) ───────────────────────────────────────────────────
+// GET /check-username?username=xxx
+router.get("/check-username", checkUsername);
 
-// POST /shorten
-// verifyToken → attach req.user, then validateURL → then shorten
-router.post("/shorten", verifyToken, validateURL, shortenURL);
+// ── Protected Routes ──────────────────────────────────────────────────────────
+router.post("/shorten",          verifyToken, validateURL, shortenURL);
+router.get("/my-links",          verifyToken, getMyLinks);
+router.delete("/my-links/:id",   verifyToken, deleteMyLink);
+router.post("/reserve-username", verifyToken, reserveUsername);
 
-// GET /my-links
-// Returns all links for the logged-in user (personal dashboard)
-router.get("/my-links", verifyToken, getMyLinks);
-
-// DELETE /my-links/:id
-// Deletes a specific link by Firestore doc ID (ownership checked in repo)
-router.delete("/my-links/:id", verifyToken, deleteMyLink);
-
-// ── Public Routes (no login required) ─────────────────────────────────────────
-
-// GET /recent
-// Returns 10 most recent global links
-// Must come BEFORE /:shortURL to avoid being swallowed by it
-router.get("/recent", getRecent);
-
-// GET /:shortURL
-// Redirect to the original URL (public, works for everyone)
-router.get("/:shortURL", redirectURL);
+// ── Public Routes ─────────────────────────────────────────────────────────────
+// GET /recent must come BEFORE /:shortURL
+router.get("/recent",     getRecent);
+router.get("/:shortURL",  redirectURL);
 
 export default router;

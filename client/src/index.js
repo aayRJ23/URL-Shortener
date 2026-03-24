@@ -1,28 +1,19 @@
-// index.js
-// ─────────────────────────────────────────────────────────────
-// Entry point of the React app.
-//
-// Changes from v1:
-//  - Wrapped <App /> with <AuthProvider> so every component
-//    in the tree can access auth state via useAuth()
-// ─────────────────────────────────────────────────────────────
-
-import React            from "react";
-import ReactDOM         from "react-dom/client";
+import React from "react";
+import ReactDOM from "react-dom/client";
 import "./index.css";
-import App              from "./App";
-import { AuthProvider } from "./context/AuthContext";  // NEW
-import reportWebVitals  from "./reportWebVitals";
+import App from "./App";
+import { ToastProvider } from "./context/ToastContext";
+import { AuthProvider }  from "./context/AuthContext";
+
+// ToastProvider must be outside AuthProvider so the auth event
+// callback (which calls showToast) can be wired in App.jsx.
+// AuthProvider wraps App so every component can useAuth().
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
-
 root.render(
   <React.StrictMode>
-    {/* AuthProvider must wrap App so useAuth() works everywhere */}
-    <AuthProvider>
+    <ToastProvider>
       <App />
-    </AuthProvider>
+    </ToastProvider>
   </React.StrictMode>
 );
-
-reportWebVitals();

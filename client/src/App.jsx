@@ -1,86 +1,29 @@
 // App.jsx
-// ─────────────────────────────────────────────────────────────
-// Root component — layout + auth gate.
-//
-// Changes from v1:
-//  - If user is not logged in → show AuthForm
-//  - If user is logged in → show the full shortener UI
-//  - handleDelete is now pulled from the hook and passed to HistoryList
-//
-// All state and logic → useUrlShortener (hooks/useUrlShortener.js)
-// All API calls       → urlApi          (api/urlApi.js)
-// Auth state          → AuthContext     (context/AuthContext.jsx)
-// ─────────────────────────────────────────────────────────────
+// Root component.
+// Architecture:
+//   ToastProvider (index.js)
+//     └─ App
+//          └─ AuthProvider (receives onAuthEvent → fires toasts)
+//               └─ AppContent (reads useAuth + useUrlShortener)
 
 import "./App.css";
-
-import Header      from "./components/Header";
-import ShortenForm from "./components/ShortenForm";
-import ResultBox   from "./components/ResultBox";
-import HistoryList from "./components/HistoryList";
-import Footer      from "./components/Footer";
-import AuthForm    from "./components/AuthForm";  // NEW
-
-import { useUrlShortener } from "./hooks/useUrlShortener";
-import { useAuth }         from "./context/AuthContext";  // NEW
+import { AuthProvider } from "./context/AuthContext";
+import { useToast }     from "./context/ToastContext";
+import AppContent       from "./components/AppContent";
 
 function App() {
-  const { user } = useAuth(); // NEW: check if user is logged in
+  const { showToast } = useToast();
 
-  const {
-    currentURL, customAlias, error, loading,
-    inputRef, handleSubmit, handleURLChange, handleAliasChange,
-    shortURL, showResult, copied, handleCopy,
-    history, historyLoading, loadHistory,
-    handleDelete, // NEW
-  } = useUrlShortener();
+  function handleAuthEvent(type, name) {
+    if (type === "signup") showToast(`Welcome, @${name}! Account created 🎉`, "success");
+    if (type === "login")  showToast(`Welcome back, @${name}! 👋`, "success");
+    if (type === "logout") showToast("Logged out. See you soon!", "info");
+  }
 
   return (
-    <div className="app">
-
-      <Header />
-
-      <main className="main">
-        {/* If not logged in, show auth form instead of the shortener */}
-        {!user ? (
-          <AuthForm />
-        ) : (
-          <>
-            {/* URL input form */}
-            <ShortenForm
-              currentURL={currentURL}
-              customAlias={customAlias}
-              error={error}
-              loading={loading}
-              inputRef={inputRef}
-              onSubmit={handleSubmit}
-              onURLChange={handleURLChange}
-              onAliasChange={handleAliasChange}
-            />
-
-            {/* Result shown after successful shortening */}
-            {showResult && (
-              <ResultBox
-                shortURL={shortURL}
-                copied={copied}
-                onCopy={handleCopy}
-              />
-            )}
-
-            {/* User's personal link history */}
-            <HistoryList
-              history={history}
-              historyLoading={historyLoading}
-              onRefresh={loadHistory}
-              onDelete={handleDelete}
-            />
-          </>
-        )}
-      </main>
-
-      <Footer />
-
-    </div>
+    <AuthProvider onAuthEvent={handleAuthEvent}>
+      <AppContent />
+    </AuthProvider>
   );
 }
 
