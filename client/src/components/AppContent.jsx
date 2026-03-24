@@ -18,6 +18,7 @@ function AppContent() {
     currentURL, customAlias, error, loading,
     inputRef, handleSubmit, handleURLChange, handleAliasChange,
     shortURL, showResult, copied, handleCopy,
+    spamReasons, spamConfidence,
     history, historyLoading, loadHistory,
     handleDelete,
   } = useUrlShortener();
@@ -40,6 +41,8 @@ function AppContent() {
               onURLChange={handleURLChange}
               onAliasChange={handleAliasChange}
               username={user.displayName}
+              spamReasons={spamReasons}
+              spamConfidence={spamConfidence}
             />
 
             {showResult && (

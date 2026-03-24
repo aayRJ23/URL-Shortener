@@ -16,6 +16,10 @@ export function useUrlShortener() {
   const [error,       setError]       = useState("");
   const [loading,     setLoading]     = useState(false);
 
+  // Spam detection state
+  const [spamReasons,    setSpamReasons]    = useState([]);
+  const [spamConfidence, setSpamConfidence] = useState(null);
+
   // Result state
   const [shortURL,   setShortURL]   = useState("");
   const [showResult, setShowResult] = useState(false);
@@ -67,6 +71,8 @@ export function useUrlShortener() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
+    setSpamReasons([]);
+    setSpamConfidence(null);
     setShowResult(false);
 
     if (!currentURL.trim()) {
@@ -84,6 +90,10 @@ export function useUrlShortener() {
       loadHistory();
     } catch (err) {
       setError(err.message || "Could not connect to server. Is the API running?");
+      if (err.isSpam) {
+        setSpamReasons(err.reasons    || []);
+        setSpamConfidence(err.confidence ?? null);
+      }
     } finally {
       setLoading(false);
     }
@@ -123,6 +133,8 @@ export function useUrlShortener() {
     inputRef, handleSubmit, handleURLChange, handleAliasChange,
     // Result
     shortURL, showResult, copied, handleCopy,
+    // Spam detection
+    spamReasons, spamConfidence,
     // History
     history, historyLoading, loadHistory, handleDelete,
   };

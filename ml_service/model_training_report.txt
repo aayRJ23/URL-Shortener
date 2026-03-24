@@ -1,0 +1,74 @@
+============================================================
+  PHISHING URL CLASSIFIER — TRAINING REPORT
+============================================================
+
+───────────────────────── Dataset ─────────────────────────
+  File          : dataset_phishing.csv
+  Feature mode  : dataset (pre-computed features)
+  Total samples : 11,430
+  Phishing      : 5,715  (50.0%)
+  Legitimate    : 5,715  (50.0%)
+  Features      : 87
+  Train split   : 9,144 (80%)
+  Test split    : 2,286  (20%)
+
+───────────────────────── Training ─────────────────────────
+  Algorithm     : Random Forest
+  Trees         : 200
+  Max depth     : 20
+  Class weight  : balanced
+  Status        : training …
+  Done in       : 0.5s
+
+─────────── Evaluation — Hold-out Test Set (20%) ───────────
+
+  Accuracy      :  96.15%   ██████████████████████████████████████░░
+  ROC-AUC       :  99.29%   ████████████████████████████████████████
+  Precision     :  95.83%   ██████████████████████████████████████░░
+  Recall        :  96.50%   ███████████████████████████████████████░
+  F1-Score      :  96.16%   ██████████████████████████████████████░░
+
+  Confusion Matrix:
+                   Predicted
+                Legit   Phishing
+  Actual Legit    1095         48
+  Actual Phish      40       1103
+
+  False Positives (legit flagged as phish): 48
+  False Negatives (phish missed)          : 40
+
+  Full Classification Report:
+                  precision    recall  f1-score   support
+    
+      legitimate       0.96      0.96      0.96      1143
+        phishing       0.96      0.97      0.96      1143
+    
+        accuracy                           0.96      2286
+       macro avg       0.96      0.96      0.96      2286
+    weighted avg       0.96      0.96      0.96      2286
+
+───────────────── 5-Fold Cross-Validation ─────────────────
+  Running 5-fold CV on full dataset …
+  Fold scores   : 96.72% | 96.68% | 96.28% | 95.89% | 96.98%
+  Mean          : 96.51%
+  Std dev       : ±0.38%
+
+──────────────── Top 15 Feature Importances ────────────────
+   1. google_index                        0.1790  ██████████████████████████████
+   2. page_rank                           0.1020  █████████████████░░░░░░░░░░░░░
+   3. nb_hyperlinks                       0.0849  ██████████████░░░░░░░░░░░░░░░░
+   4. web_traffic                         0.0806  ██████████████░░░░░░░░░░░░░░░░
+   5. nb_www                              0.0455  ████████░░░░░░░░░░░░░░░░░░░░░░
+   6. ratio_extHyperlinks                 0.0314  █████░░░░░░░░░░░░░░░░░░░░░░░░░
+   7. domain_age                          0.0312  █████░░░░░░░░░░░░░░░░░░░░░░░░░
+   8. phish_hints                         0.0268  ████░░░░░░░░░░░░░░░░░░░░░░░░░░
+   9. ratio_intHyperlinks                 0.0262  ████░░░░░░░░░░░░░░░░░░░░░░░░░░
+  10. safe_anchor                         0.0261  ████░░░░░░░░░░░░░░░░░░░░░░░░░░
+  11. longest_word_path                   0.0249  ████░░░░░░░░░░░░░░░░░░░░░░░░░░
+  12. ratio_extRedirection                0.0206  ███░░░░░░░░░░░░░░░░░░░░░░░░░░░
+  13. length_url                          0.0193  ███░░░░░░░░░░░░░░░░░░░░░░░░░░░
+  14. ratio_digits_url                    0.0180  ███░░░░░░░░░░░░░░░░░░░░░░░░░░░
+  15. length_words_raw                    0.0160  ███░░░░░░░░░░░░░░░░░░░░░░░░░░░
+
+────────────────────────── Saving ──────────────────────────
+  Model saved   → model.pkl

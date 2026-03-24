@@ -831,3 +831,76 @@ body {
   color: #ffffff;
 }
  
+/* ── Spam Detection Panel ─────────────────────────────────────────────────── */
+
+.spam-panel {
+  margin-top: 12px;
+  background: #1a0a0a;
+  border: 1.5px solid #7f1d1d;
+  border-radius: 10px;
+  padding: 14px 16px;
+  animation: fadeIn 0.2s ease;
+}
+
+.spam-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.spam-panel__icon {
+  font-size: 1.1rem;
+}
+
+.spam-panel__title {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #fca5a5;
+  flex: 1;
+}
+
+.spam-panel__confidence {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #f87171;
+  background: #450a0a;
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid #7f1d1d;
+}
+
+.spam-panel__msg {
+  font-size: 0.82rem;
+  color: #fca5a5;
+  margin: 0 0 10px 0;
+  line-height: 1.5;
+}
+
+.spam-panel__reasons {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.spam-panel__reason {
+  font-size: 0.8rem;
+  color: #fecaca;
+  display: flex;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+.spam-panel__bullet {
+  color: #f87171;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

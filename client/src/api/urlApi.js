@@ -23,7 +23,14 @@ export async function shortenURL(currentURL, customAlias, token) {
     body:    JSON.stringify({ currentURL, customAlias }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Something went wrong.");
+  if (!res.ok) {
+    // 422 = spam detected — attach reasons so the UI can display them
+    const err = new Error(data.error || "Something went wrong.");
+    err.reasons    = data.reasons    || [];
+    err.confidence = data.confidence ?? null;
+    err.isSpam     = res.status === 422;
+    throw err;
+  }
   return data;
 }
 

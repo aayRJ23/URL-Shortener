@@ -17,8 +17,11 @@ function ShortenForm({
   onURLChange,
   onAliasChange,
   username,
+  spamReasons,
+  spamConfidence,
 }) {
   const baseDisplay = API_BASE.replace(/^https?:\/\//, "");
+  const isSpamError = spamReasons && spamReasons.length > 0;
 
   return (
     <div className="card card--main">
@@ -69,8 +72,31 @@ function ShortenForm({
           </p>
         </div>
 
-        {/* Validation error */}
-        {error && <p className="error-msg">⚠ {error}</p>}
+        {/* Validation / generic error */}
+        {error && !isSpamError && <p className="error-msg">⚠ {error}</p>}
+
+        {/* Spam detection panel */}
+        {isSpamError && (
+          <div className="spam-panel">
+            <div className="spam-panel__header">
+              <span className="spam-panel__icon">🚨</span>
+              <span className="spam-panel__title">URL Flagged as Malicious</span>
+              {spamConfidence !== null && (
+                <span className="spam-panel__confidence">
+                  {Math.round(spamConfidence * 100)}% confidence
+                </span>
+              )}
+            </div>
+            <p className="spam-panel__msg">{error}</p>
+            <ul className="spam-panel__reasons">
+              {spamReasons.map((reason, i) => (
+                <li key={i} className="spam-panel__reason">
+                  <span className="spam-panel__bullet">›</span> {reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Submit button */}
         <button
