@@ -1,7 +1,6 @@
 /**
- * routes/urlRoutes.js
- * Added: GET /has-username (protected) — checks if the authenticated user
- * already has a username reserved. Used by Google sign-in to detect new vs returning users.
+ * api/routes/urlRoutes.js
+ * Added spamCheck middleware between validateURL and shortenURL.
  */
 
 import { Router } from "express";
@@ -15,8 +14,9 @@ import {
   reserveUsername,
   hasUsername,
 } from "../controllers/urlController.js";
-import { validateURL }  from "../middlewares/validateURL.js";
-import { verifyToken }  from "../middlewares/authMiddleware.js";
+import { validateURL } from "../middlewares/validateURL.js";
+import { spamCheck }   from "../middlewares/spamCheck.js";
+import { verifyToken } from "../middlewares/authMiddleware.js";
 
 const router = Router();
 
@@ -28,7 +28,8 @@ router.get("/has-username",      verifyToken, hasUsername);
 router.post("/reserve-username", verifyToken, reserveUsername);
 
 // ── Protected Routes ──────────────────────────────────────────────────────────
-router.post("/shorten",        verifyToken, validateURL, shortenURL);
+// validateURL → spamCheck → shortenURL
+router.post("/shorten",        verifyToken, validateURL, spamCheck, shortenURL);
 router.get("/my-links",        verifyToken, getMyLinks);
 router.delete("/my-links/:id", verifyToken, deleteMyLink);
 

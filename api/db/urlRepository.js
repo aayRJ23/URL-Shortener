@@ -131,7 +131,7 @@ export const claimUsername = async (username, uid) => {
 
 // ── URL operations ────────────────────────────────────────────────────────────
 
-export const createShortURL = async (originalURL, shortURL, userId, username) => {
+export const createShortURL = async (originalURL, shortURL, userId, username, spamResult = {}) => {
   const snapshot = await db.collection(URLS_COLLECTION)
     .where("shortURL", "==", shortURL)
     .get();
@@ -139,12 +139,16 @@ export const createShortURL = async (originalURL, shortURL, userId, username) =>
   if (!snapshot.empty) throw new Error("ALIAS_TAKEN");
 
   const docRef = await db.collection(URLS_COLLECTION).add({
-    url:         originalURL,
-    shortURL:    shortURL,
-    tracknumber: 0,
-    userId:      userId,
-    username:    username,
-    createdAt:   admin.firestore.FieldValue.serverTimestamp(),
+    url:              originalURL,
+    shortURL:         shortURL,
+    tracknumber:      0,
+    userId:           userId,
+    username:         username,
+    createdAt:        admin.firestore.FieldValue.serverTimestamp(),
+    // Spam detection metadata
+    spamConfidence:   spamResult.confidence  ?? null,
+    spamReasons:      spamResult.reasons     ?? [],
+    mlAvailable:      spamResult.mlAvailable ?? false,
   });
 
   console.log(`[DB] New URL saved. Doc ID: ${docRef.id}, Owner: ${username} (${userId})`);

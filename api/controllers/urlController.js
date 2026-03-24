@@ -17,12 +17,13 @@ import {
 const shortenURL = async (req, res) => {
   const { currentURL, customAlias } = req.body;
   const { uid: userId, username }   = req.user;
+  const spamResult                  = req.spamResult || {};
 
   const suffix   = customAlias ? customAlias.trim() : nanoid(5);
   const shortURL = `${username}-${suffix}`;
 
   try {
-    await createShortURL(currentURL, shortURL, userId, username);
+    await createShortURL(currentURL, shortURL, userId, username, spamResult);
     console.log(`[Controller] Shortened: ${currentURL} → ${shortURL} (by ${username})`);
     res.status(201).json({ shortedurl: shortURL });
   } catch (error) {
