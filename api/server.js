@@ -1,63 +1,65 @@
+/**
+ * server.js
+ *
+ * The entry point of the API.
+ *
+ * This file is intentionally kept minimal — its only job is to:
+ *  1. Create the Express app
+ *  2. Register global middleware (CORS, body parsing)
+ *  3. Mount the route definitions
+ *  4. Start listening on a port
+ *
+ * All actual logic lives in:
+ *  - config/firebase.js    → Firebase setup
+ *  - db/urlRepository.js   → Firestore queries
+ *  - controllers/          → Business logic
+ *  - routes/               → URL path definitions
+ *  - middlewares/          → Reusable request guards
+ */
+
 import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
-import { writeData } from "./firebase.js";
-import { findURL } from "./firebase.js";
-import shortid from "shortid";
+import dotenv from "dotenv";
+import urlRoutes from "./routes/urlRoutes.js";
+
+// Load environment variables from .env file
+dotenv.config();
 
 const app = express();
 
+// ─── Global Middleware ────────────────────────────────────────────────────────
+
+// Allow requests from the frontend (configured via CLIENT_URL in .env)
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: process.env.CLIENT_URL || "http://localhost:3000",
   })
 );
 
+// Parse JSON and URL-encoded request bodies
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// Serve any files in /static as public assets (optional)
 app.use(express.static("static"));
 
+// ─── Health Check ─────────────────────────────────────────────────────────────
+
 app.get("/", (req, res) => {
-  res.send("OK");
+  res.send("URL Shortener API is running.");
 });
 
-app.post("/shorten", (req, res) => {
-  //console.log(req.body.currentURL);
-  const { currentURL } = req.body;
-  //url shorten karo
-  const hashed = shortid();
-  var shortURL = hashed.slice(0, 4);
-  console.log(`Short URL generated is : `, shortURL);
-  // mapping is saved between encoded and original url , then firestore me save krlo
-  writeData(currentURL, shortURL);
-  // shorted url ko return krdo
-  res.status(201).send({ shortedurl: shortURL });
-});
+// ─── Routes ───────────────────────────────────────────────────────────────────
 
-app.get("/:shortURL", async (req, res) => {
-  const shortURL = req.params.shortURL;
+// All URL-related routes are handled by urlRoutes
+// This covers: POST /shorten, GET /recent, GET /:shortURL
+app.use("/", urlRoutes);
 
-  try {
-    const { originalURL, tracknumber } = await findURL(shortURL);
+// ─── Start Server ─────────────────────────────────────────────────────────────
 
-    if (originalURL === null) {
-      return res.status(404).send("Not Found");
-    }
+const PORT = process.env.PORT || 4010;
 
-    console.log("Redirecting to:", originalURL);
-    console.log(
-      "Till now , this website has been visited ",
-      tracknumber,
-      "times"
-    );
-    res.redirect(originalURL);
-  } catch (error) {
-    console.error("Error redirecting to original URL:", error);
-    res.status(500).send("Internal Server Error");
-  }
-});
-
-const PORT = 4010;
 app.listen(PORT, () => {
-  console.log(`Server is running on the PORT ${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });
