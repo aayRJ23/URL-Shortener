@@ -118,40 +118,9 @@ FEATURE_NAMES = [
     "brand_in_subdomain",       # 1 if a brand name appears in the subdomain
     "brand_in_path",            # 1 if a brand name appears in the path
     "suspecious_tld",           # 1 if TLD is in the suspicious-TLD list
-    "statistical_report",       # 1 if domain appears in statistical phishing reports
-    # ── Page / external features (set to 0 for live URL-only mode) ────────
-    "nb_hyperlinks",            # number of hyperlinks on the page
-    "ratio_intHyperlinks",      # ratio of internal hyperlinks
-    "ratio_extHyperlinks",      # ratio of external hyperlinks
-    "ratio_nullHyperlinks",     # ratio of null/empty href hyperlinks
-    "nb_extCSS",                # number of external CSS files
-    "ratio_intRedirection",     # ratio of internal redirections
-    "ratio_extRedirection",     # ratio of external redirections
-    "ratio_intErrors",          # ratio of internal link errors
-    "ratio_extErrors",          # ratio of external link errors
-    "login_form",               # 1 if page contains a login form
-    "external_favicon",         # 1 if favicon is loaded from an external domain
-    "links_in_tags",            # ratio of links in <meta>/<script>/<link> tags
-    "submit_email",             # 1 if form submits to an email address
-    "ratio_intMedia",           # ratio of internal media resources
-    "ratio_extMedia",           # ratio of external media resources
-    "sfh",                      # suspicious form handler (0/1/2)
-    "iframe",                   # 1 if page uses an <iframe>
-    "popup_window",             # 1 if page triggers popup windows
-    "safe_anchor",              # ratio of safe (internal) anchor tags
-    "onmouseover",              # 1 if onmouseover JS is used to hide destination
-    "right_clic",               # 1 if right-click is disabled
-    "empty_title",              # 1 if <title> tag is empty
-    "domain_in_title",          # 1 if registered domain appears in page title
-    "domain_with_copyright",    # 1 if copyright text matches the domain
-    # ── WHOIS / DNS / reputation features ─────────────────────────────────
-    "whois_registered_domain",  # 1 if domain has valid WHOIS registration
-    "domain_registration_length",# registration length in days (0 if unknown)
-    "domain_age",               # domain age in days (0 if unknown)
-    "web_traffic",              # Alexa/traffic rank bucket (0 = no data)
-    "dns_record",               # 1 if domain has a DNS A record
-    "google_index",             # 1 if URL is indexed by Google
-    "page_rank",                # PageRank score (0–10)
+    # NOTE: statistical_report and all page/WHOIS/DNS/reputation features removed.
+    # They were always 0 at prediction time (no page fetching), which caused the
+    # model to flag every URL as phishing. Model now uses 55 URL-only features.
 ]
 
 
@@ -294,7 +263,12 @@ def extract_features(url: str) -> list:
     # ── Brand checks ──────────────────────────────────────────────────────
     domain_in_brand   = int(any(b == reg_domain.split(".")[0] for b in BRANDS))
     brand_in_subdomain = int(any(b in subdomain  for b in BRANDS))
-    brand_in_path      = int(any(b in path_q     for b in BRANDS))
+    # Only flag brand_in_path when the domain itself is not the brand (impersonation)
+    # e.g. github.com/facebook/react → NOT phishing (domain is not a brand)
+    # e.g. evil.com/apple/login      → IS suspicious
+    brand_in_path = int(
+        not domain_in_brand and any(b in path_q for b in BRANDS)
+    )
 
     # ── TLD checks ────────────────────────────────────────────────────────
     tld = "." + parts[-1] if parts else ""
@@ -365,38 +339,4 @@ def extract_features(url: str) -> list:
         brand_in_subdomain,                             # brand_in_subdomain
         brand_in_path,                                  # brand_in_path
         suspicious_tld,                                 # suspecious_tld
-        0,                                              # statistical_report (needs DB)
-        # ── Page-level features — 0 in live/URL-only mode ─────────────────
-        0,   # nb_hyperlinks
-        0.0, # ratio_intHyperlinks
-        0.0, # ratio_extHyperlinks
-        0.0, # ratio_nullHyperlinks
-        0,   # nb_extCSS
-        0.0, # ratio_intRedirection
-        0.0, # ratio_extRedirection
-        0.0, # ratio_intErrors
-        0.0, # ratio_extErrors
-        0,   # login_form
-        0,   # external_favicon
-        0.0, # links_in_tags
-        0,   # submit_email
-        0.0, # ratio_intMedia
-        0.0, # ratio_extMedia
-        0,   # sfh
-        0,   # iframe
-        0,   # popup_window
-        0.0, # safe_anchor
-        0,   # onmouseover
-        0,   # right_clic
-        0,   # empty_title
-        0,   # domain_in_title
-        0,   # domain_with_copyright
-        # ── WHOIS / DNS / reputation — 0 in live/URL-only mode ────────────
-        0,   # whois_registered_domain
-        0,   # domain_registration_length
-        0,   # domain_age
-        0,   # web_traffic
-        0,   # dns_record
-        0,   # google_index
-        0,   # page_rank
     ]

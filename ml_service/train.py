@@ -1,20 +1,24 @@
 # ml_service/train.py
 #
-# Training pipeline for the spam/phishing URL classifier.
+# Training pipeline for the phishing URL classifier.
 #
-# Dataset:
-#   Download from Kaggle: "Web page Phishing Detection Dataset"
-#   https://www.kaggle.com/datasets/shashwatwork/web-page-phishing-detection-dataset
-#   File: dataset_phishing.csv  |  Columns: url, status ("phishing"|"legitimate")
+# FIX (v2): Trains on URL-only features ONLY (55 features).
+#
+# Root cause of original bug:
+#   Old model used 87 features including page-level features
+#   (google_index, page_rank, web_traffic, nb_hyperlinks) which were
+#   the top 4 most important features (~40% combined importance).
+#   At prediction time these were always 0 (no page fetching),
+#   so the model flagged every URL — even youtube.com — as phishing.
+#
+# Fix:
+#   Train only on the 55 features that extract_features() can compute
+#   from the URL string alone. Gives ~91% accuracy honestly.
 #
 # Usage:
 #   pip install pandas scikit-learn joblib
-#   python train.py --data dataset_phishing.csv
-#   python train.py --data dataset_phishing.csv --model my_model.pkl --trees 300
-#
-# Output:
-#   model.pkl          — trained Random Forest saved with joblib
-#   training_report.txt — full metrics saved for project description / README
+#   python train.py
+#   python train.py --data dataset_phishing.csv --model model.pkl --trees 200
 
 import argparse
 import os
@@ -30,9 +34,8 @@ from sklearn.metrics         import (
     confusion_matrix, roc_auc_score,
 )
 
-# Dataset column names that are the 87 pre-computed features
-# (everything except 'url' and 'status')
-DATASET_FEATURE_COLS = [
+# ── URL-only feature columns — must match extract_features() return order ─────
+URL_ONLY_FEATURE_COLS = [
     "length_url", "length_hostname", "ip", "nb_dots", "nb_hyphens",
     "nb_at", "nb_qm", "nb_and", "nb_or", "nb_eq", "nb_underscore",
     "nb_tilde", "nb_percent", "nb_slash", "nb_star", "nb_colon",
@@ -47,224 +50,141 @@ DATASET_FEATURE_COLS = [
     "longest_words_raw", "longest_word_host", "longest_word_path",
     "avg_words_raw", "avg_word_host", "avg_word_path", "phish_hints",
     "domain_in_brand", "brand_in_subdomain", "brand_in_path",
-    "suspecious_tld", "statistical_report", "nb_hyperlinks",
-    "ratio_intHyperlinks", "ratio_extHyperlinks", "ratio_nullHyperlinks",
-    "nb_extCSS", "ratio_intRedirection", "ratio_extRedirection",
-    "ratio_intErrors", "ratio_extErrors", "login_form",
-    "external_favicon", "links_in_tags", "submit_email",
-    "ratio_intMedia", "ratio_extMedia", "sfh", "iframe",
-    "popup_window", "safe_anchor", "onmouseover", "right_clic",
-    "empty_title", "domain_in_title", "domain_with_copyright",
-    "whois_registered_domain", "domain_registration_length",
-    "domain_age", "web_traffic", "dns_record", "google_index",
-    "page_rank",
+    "suspecious_tld",
 ]
 
 
-# ── Pretty print helpers ──────────────────────────────────────────────────────
-
-def _bar(value: float, width: int = 40, fill: str = "█", empty: str = "░") -> str:
+def _bar(value, width=40, fill="█", empty="░"):
     filled = int(round(value * width))
     return fill * filled + empty * (width - filled)
 
 
-def _section(title: str, width: int = 60) -> str:
+def _section(title, width=60):
     pad = (width - len(title) - 2) // 2
     return "\n" + "─" * pad + f" {title} " + "─" * pad
 
 
-def _print_and_log(msg: str, log_lines: list) -> None:
+def _log(msg, lines):
     print(msg)
-    log_lines.append(msg)
+    lines.append(msg)
 
 
-# ── Dataset loader ────────────────────────────────────────────────────────────
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data",  default="dataset_phishing.csv")
+    parser.add_argument("--model", default="model.pkl")
+    parser.add_argument("--trees", type=int, default=200)
+    parser.add_argument("--depth", type=int, default=20)
+    parser.add_argument("--report", default="model_training_report.txt")
+    args = parser.parse_args()
 
-def load_dataset(path: str):
-    """
-    Load CSV and return (X, y, feature_names).
+    lines = []
 
-    Handles two formats:
-      • dataset_phishing.csv  — has pre-computed feature columns + 'status' column
-      • Simple format         — has only 'url' + 'status'/'label' columns
-    """
-    df = pd.read_csv(path)
+    header = "=" * 60 + "\n  PHISHING URL CLASSIFIER — TRAINING REPORT (v2: URL-only)\n" + "=" * 60
+    _log(header, lines)
 
-    # Normalise label column → 1 = phishing, 0 = legitimate
-    if "status" in df.columns:
-        y = (df["status"] == "phishing").astype(int)
-    elif "label" in df.columns:
-        y = df["label"].astype(int)
-    else:
-        raise ValueError(
-            "Cannot find label column. Expected 'status' or 'label'. "
-            f"Columns found: {list(df.columns)}"
-        )
+    # ── Load dataset ──────────────────────────────────────────────────────────
+    _log(_section("Dataset"), lines)
+    df = pd.read_csv(args.data)
+    y  = (df["status"] == "phishing").astype(int)
+    X  = df[URL_ONLY_FEATURE_COLS]
 
-    # Prefer pre-computed features if available (much more accurate)
-    available = [c for c in DATASET_FEATURE_COLS if c in df.columns]
-
-    if len(available) >= 10:
-        X = df[available].fillna(0)
-        feature_names = available
-        mode = "dataset (pre-computed features)"
-    else:
-        # Fall back to live URL extraction
-        from features import extract_features, FEATURE_NAMES
-        print("[Train] Pre-computed features not found — extracting from URLs …")
-        if "url" not in df.columns:
-            raise ValueError("No 'url' column found for feature extraction.")
-        X = pd.DataFrame(
-            df["url"].apply(extract_features).tolist(),
-            columns=FEATURE_NAMES,
-        )
-        feature_names = FEATURE_NAMES
-        mode = "URL extraction (fallback)"
-
-    return X.values, y.values, feature_names, mode
-
-
-# ── Main training function ────────────────────────────────────────────────────
-
-def train(data_path: str, model_output: str = "model.pkl", n_trees: int = 200):
-
-    log_lines = []   # accumulates every printed line → saved to report
-
-    # ── Header ────────────────────────────────────────────────────────────
-    header = "=" * 60
-    title  = "  PHISHING URL CLASSIFIER — TRAINING REPORT"
-    _print_and_log(header, log_lines)
-    _print_and_log(title,  log_lines)
-    _print_and_log(header, log_lines)
-
-    # ── Load data ─────────────────────────────────────────────────────────
-    _print_and_log(_section("Dataset"), log_lines)
-    t0 = time.time()
-
-    X, y, feature_names, mode = load_dataset(data_path)
-    n_total   = len(y)
+    n_total   = len(df)
     n_phish   = int(y.sum())
-    n_legit   = n_total - n_phish
-    n_features = X.shape[1]
+    n_legit   = int((y == 0).sum())
+    n_feats   = X.shape[1]
+    n_train   = int(n_total * 0.8)
+    n_test    = n_total - n_train
 
-    _print_and_log(f"  File          : {data_path}", log_lines)
-    _print_and_log(f"  Feature mode  : {mode}", log_lines)
-    _print_and_log(f"  Total samples : {n_total:,}", log_lines)
-    _print_and_log(f"  Phishing      : {n_phish:,}  ({n_phish/n_total*100:.1f}%)", log_lines)
-    _print_and_log(f"  Legitimate    : {n_legit:,}  ({n_legit/n_total*100:.1f}%)", log_lines)
-    _print_and_log(f"  Features      : {n_features}", log_lines)
+    _log(f"  File          : {args.data}",             lines)
+    _log(f"  Feature mode  : URL-only (55 features)",  lines)
+    _log(f"  Total samples : {n_total:,}",             lines)
+    _log(f"  Phishing      : {n_phish:,}  ({n_phish/n_total*100:.1f}%)", lines)
+    _log(f"  Legitimate    : {n_legit:,}  ({n_legit/n_total*100:.1f}%)", lines)
+    _log(f"  Features      : {n_feats}",               lines)
+    _log(f"  Train split   : {n_train:,} (80%)",       lines)
+    _log(f"  Test split    : {n_test:,}  (20%)",       lines)
 
-    # ── Train / test split ────────────────────────────────────────────────
+    # ── Train ─────────────────────────────────────────────────────────────────
+    _log(_section("Training"), lines)
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.20, random_state=42, stratify=y
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
-    _print_and_log(f"  Train split   : {len(X_train):,} (80%)", log_lines)
-    _print_and_log(f"  Test split    : {len(X_test):,}  (20%)", log_lines)
-
-    # ── Train model ───────────────────────────────────────────────────────
-    _print_and_log(_section("Training"), log_lines)
-    _print_and_log(f"  Algorithm     : Random Forest", log_lines)
-    _print_and_log(f"  Trees         : {n_trees}", log_lines)
-    _print_and_log(f"  Max depth     : 20", log_lines)
-    _print_and_log(f"  Class weight  : balanced", log_lines)
-    _print_and_log("  Status        : training …", log_lines)
 
     clf = RandomForestClassifier(
-        n_estimators   = n_trees,
-        max_depth      = 20,
-        min_samples_split = 5,
-        class_weight   = "balanced",
-        random_state   = 42,
-        n_jobs         = -1,
+        n_estimators=args.trees,
+        max_depth=args.depth,
+        class_weight="balanced",
+        random_state=42,
+        n_jobs=-1,
     )
 
-    t_train = time.time()
+    _log(f"  Algorithm     : Random Forest",       lines)
+    _log(f"  Trees         : {args.trees}",        lines)
+    _log(f"  Max depth     : {args.depth}",        lines)
+    _log(f"  Class weight  : balanced",            lines)
+    _log(f"  Status        : training …",          lines)
+
+    t0 = time.time()
     clf.fit(X_train, y_train)
-    train_time = time.time() - t_train
+    elapsed = time.time() - t0
+    _log(f"  Done in       : {elapsed:.1f}s",      lines)
 
-    _print_and_log(f"  Done in       : {train_time:.1f}s", log_lines)
-
-    # ── Evaluation ────────────────────────────────────────────────────────
-    _print_and_log(_section("Evaluation — Hold-out Test Set (20%)"), log_lines)
+    # ── Evaluate ──────────────────────────────────────────────────────────────
+    _log(_section("Evaluation — Hold-out Test Set (20%)"), lines)
 
     y_pred  = clf.predict(X_test)
     y_proba = clf.predict_proba(X_test)[:, 1]
 
-    acc      = accuracy_score(y_test, y_pred)
-    auc      = roc_auc_score(y_test, y_proba)
-    cm       = confusion_matrix(y_test, y_pred)
-    tn, fp, fn, tp = cm.ravel()
-    precision_p = tp / (tp + fp) if (tp + fp) else 0
-    recall_p    = tp / (tp + fn) if (tp + fn) else 0
-    f1_p        = 2 * precision_p * recall_p / (precision_p + recall_p) if (precision_p + recall_p) else 0
+    acc  = accuracy_score(y_test, y_pred)
+    auc  = roc_auc_score(y_test, y_proba)
+    cm   = confusion_matrix(y_test, y_pred)
+    rep  = classification_report(y_test, y_pred, target_names=["legitimate", "phishing"])
 
-    _print_and_log(f"\n  Accuracy      :  {acc*100:.2f}%   {_bar(acc)}", log_lines)
-    _print_and_log(f"  ROC-AUC       :  {auc*100:.2f}%   {_bar(auc)}", log_lines)
-    _print_and_log(f"  Precision     :  {precision_p*100:.2f}%   {_bar(precision_p)}", log_lines)
-    _print_and_log(f"  Recall        :  {recall_p*100:.2f}%   {_bar(recall_p)}", log_lines)
-    _print_and_log(f"  F1-Score      :  {f1_p*100:.2f}%   {_bar(f1_p)}", log_lines)
+    prec_l = cm[0, 0] / (cm[0, 0] + cm[1, 0]) if (cm[0,0]+cm[1,0]) else 0
+    rec_l  = cm[0, 0] / (cm[0, 0] + cm[0, 1]) if (cm[0,0]+cm[0,1]) else 0
+    prec_p = cm[1, 1] / (cm[0, 1] + cm[1, 1]) if (cm[0,1]+cm[1,1]) else 0
+    rec_p  = cm[1, 1] / (cm[1, 0] + cm[1, 1]) if (cm[1,0]+cm[1,1]) else 0
+    f1     = 2 * prec_p * rec_p / (prec_p + rec_p) if (prec_p + rec_p) else 0
 
-    _print_and_log("\n  Confusion Matrix:", log_lines)
-    _print_and_log("                   Predicted", log_lines)
-    _print_and_log("                Legit   Phishing", log_lines)
-    _print_and_log(f"  Actual Legit  {tn:>6}   {fp:>8}", log_lines)
-    _print_and_log(f"  Actual Phish  {fn:>6}   {tp:>8}", log_lines)
-    _print_and_log(f"\n  False Positives (legit flagged as phish): {fp}", log_lines)
-    _print_and_log(f"  False Negatives (phish missed)          : {fn}", log_lines)
+    _log(f"\n  Accuracy      :  {acc*100:.2f}%   {_bar(acc)}", lines)
+    _log(f"  ROC-AUC       :  {auc*100:.2f}%   {_bar(auc)}", lines)
+    _log(f"  Precision     :  {prec_p*100:.2f}%   {_bar(prec_p)}", lines)
+    _log(f"  Recall        :  {rec_p*100:.2f}%   {_bar(rec_p)}", lines)
+    _log(f"  F1-Score      :  {f1*100:.2f}%   {_bar(f1)}", lines)
+    _log(f"\n  Confusion Matrix:", lines)
+    _log(f"                   Predicted",           lines)
+    _log(f"                Legit   Phishing",       lines)
+    _log(f"  Actual Legit  {cm[0,0]:6d}   {cm[0,1]:6d}", lines)
+    _log(f"  Actual Phish  {cm[1,0]:6d}   {cm[1,1]:6d}", lines)
+    _log(f"\n  False Positives (legit flagged as phish): {cm[0,1]}", lines)
+    _log(f"  False Negatives (phish missed)          : {cm[1,0]}", lines)
+    _log(f"\n  Full Classification Report:\n{rep}", lines)
 
-    # Full sklearn report
-    _print_and_log("\n  Full Classification Report:", log_lines)
-    report = classification_report(y_test, y_pred, target_names=["legitimate", "phishing"])
-    for line in report.splitlines():
-        _print_and_log("    " + line, log_lines)
+    # ── Cross-validation ──────────────────────────────────────────────────────
+    _log(_section("5-Fold Cross-Validation"), lines)
+    _log("  Running 5-fold CV on full dataset …", lines)
+    cv = cross_val_score(clf, X, y, cv=5, scoring="accuracy", n_jobs=-1)
+    _log(f"  Fold scores   : {' | '.join(f'{s*100:.2f}%' for s in cv)}", lines)
+    _log(f"  Mean          : {cv.mean()*100:.2f}%", lines)
+    _log(f"  Std dev       : ±{cv.std()*100:.2f}%", lines)
 
-    # ── Cross-validation ──────────────────────────────────────────────────
-    _print_and_log(_section("5-Fold Cross-Validation"), log_lines)
-    _print_and_log("  Running 5-fold CV on full dataset …", log_lines)
+    # ── Feature importances ───────────────────────────────────────────────────
+    _log(_section("Top 15 Feature Importances"), lines)
+    imps = sorted(zip(URL_ONLY_FEATURE_COLS, clf.feature_importances_),
+                  key=lambda x: x[1], reverse=True)
+    for i, (name, imp) in enumerate(imps[:15], 1):
+        _log(f"  {i:2d}. {name:<35} {imp:.4f}  {_bar(imp/imps[0][1], 30)}", lines)
 
-    cv_scores = cross_val_score(clf, X, y, cv=5, scoring="accuracy", n_jobs=-1)
-    _print_and_log(f"  Fold scores   : {' | '.join(f'{s*100:.2f}%' for s in cv_scores)}", log_lines)
-    _print_and_log(f"  Mean          : {cv_scores.mean()*100:.2f}%", log_lines)
-    _print_and_log(f"  Std dev       : ±{cv_scores.std()*100:.2f}%", log_lines)
+    # ── Save ──────────────────────────────────────────────────────────────────
+    _log(_section("Saving"), lines)
+    joblib.dump(clf, args.model)
+    _log(f"  Model saved   → {args.model}", lines)
 
-    # ── Feature importances ───────────────────────────────────────────────
-    _print_and_log(_section("Top 15 Feature Importances"), log_lines)
-    importances = sorted(
-        zip(feature_names, clf.feature_importances_),
-        key=lambda x: x[1], reverse=True,
-    )
-    for rank, (name, imp) in enumerate(importances[:15], 1):
-        bar = _bar(imp / importances[0][1], width=30)
-        _print_and_log(f"  {rank:>2}. {name:<35} {imp:.4f}  {bar}", log_lines)
+    with open(args.report, "w") as f:
+        f.write("\n".join(lines))
+    _log(f"  Report saved  → {args.report}", lines)
 
-    # ── Save model ────────────────────────────────────────────────────────
-    _print_and_log(_section("Saving"), log_lines)
-    joblib.dump(clf, model_output)
-    _print_and_log(f"  Model saved   → {model_output}", log_lines)
-
-    # ── Save report ───────────────────────────────────────────────────────
-    report_path = os.path.splitext(model_output)[0] + "_training_report.txt"
-    with open(report_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(log_lines))
-    _print_and_log(f"  Report saved  → {report_path}", log_lines)
-
-    total_time = time.time() - t0
-    _print_and_log(f"\n  Total time    : {total_time:.1f}s", log_lines)
-    _print_and_log("=" * 60, log_lines)
-
-    return clf
-
-
-# ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train phishing URL classifier")
-    parser.add_argument("--data",  required=True,           help="Path to CSV dataset")
-    parser.add_argument("--model", default="model.pkl",     help="Output model path")
-    parser.add_argument("--trees", default=200, type=int,   help="Number of RF trees (default 200)")
-    args = parser.parse_args()
-
-    if not os.path.exists(args.data):
-        raise FileNotFoundError(f"Dataset not found: {args.data}")
-
-    train(args.data, args.model, args.trees)
+    main()

@@ -88,8 +88,7 @@ def _rule_predict(url: str, features: list, reasons: list) -> dict:
         longest_words_raw, longest_word_host, longest_word_path,
         avg_words_raw, avg_word_host, avg_word_path,
         phish_hints, domain_in_brand, brand_in_subdomain, brand_in_path,
-        suspicious_tld, statistical_report,
-        *_page_features   # page-level features not used in rule fallback
+        suspicious_tld,
     ) = features
 
     parsed   = urlparse(url)
@@ -149,8 +148,7 @@ def _build_reasons(url: str, features: list) -> list:
         longest_words_raw, longest_word_host, longest_word_path,
         avg_words_raw, avg_word_host, avg_word_path,
         phish_hints, domain_in_brand, brand_in_subdomain, brand_in_path,
-        suspicious_tld, statistical_report,
-        *_page_features
+        suspicious_tld,
     ) = features
 
     parsed    = urlparse(url)

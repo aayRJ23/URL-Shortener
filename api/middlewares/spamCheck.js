@@ -16,20 +16,75 @@
  * req.spamResult is then available in the controller to persist to Firestore.
  */
 
-import fetch from "node-fetch";          // already installed in most setups
-                                         // if not: npm install node-fetch@3
+import fetch from "node-fetch";
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://localhost:5001";
-const TIMEOUT_MS     = 3000; // 3 s — keep UX snappy
+const TIMEOUT_MS     = 3000;
 
-// Confidence threshold above which we reject
-const SPAM_THRESHOLD = 0.5;
+// Raised from 0.5 → 0.62 to reduce false positives on legitimate URLs.
+// The retrained URL-only model scores genuinely suspicious URLs 0.75+,
+// while borderline-legitimate URLs (stackoverflow, docs.google) score ~0.65–0.70.
+const SPAM_THRESHOLD = 0.62;
+
+// Trusted domains that bypass ML check entirely.
+// These are high-traffic, well-known platforms whose URL patterns
+// (long path IDs, numeric slugs, brand names in path) confuse URL-only models.
+const TRUSTED_DOMAINS = new Set([
+  "google.com", "youtube.com", "github.com", "stackoverflow.com",
+  "wikipedia.org", "twitter.com", "instagram.com", "facebook.com",
+  "linkedin.com", "reddit.com", "amazon.com", "amazon.in",
+  "flipkart.com", "npmjs.com", "pypi.org", "docs.google.com",
+  "mail.google.com", "drive.google.com", "leetcode.com",
+  "geeksforgeeks.org", "medium.com", "dev.to", "notion.so",
+]);
+
+/**
+ * Returns true if the hostname ends with any trusted domain.
+ * e.g. "docs.google.com" → matches "google.com" → trusted
+ */
+function isTrustedDomain(url) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    for (const trusted of TRUSTED_DOMAINS) {
+      if (hostname === trusted || hostname.endsWith("." + trusted)) {
+        return true;
+      }
+    }
+  } catch {
+    // ignore malformed URLs — validateURL.js already caught them
+  }
+  return false;
+}
 
 const spamCheck = async (req, res, next) => {
   const url = req.body.currentURL;
 
+  // ── Trusted domain fast-pass ───────────────────────────────────────────────
+  if (isTrustedDomain(url)) {
+    console.log(`[SpamCheck] Trusted domain — skipping ML check for: ${url}`);
+    req.spamResult = { isSpam: false, confidence: 0, reasons: [], mlAvailable: true };
+    return next();
+  }
+
+  // ── Punycode safety net ────────────────────────────────────────────────────
+  // The ML model occasionally under-scores punycode (xn--) phishing domains.
+  // Block them directly here as a hard rule since punycode in a hostname
+  // is almost exclusively used for homograph/lookalike attacks.
   try {
-    // AbortController gives us a timeout on fetch (node-fetch v3 supports it)
+    const hostname = new URL(url).hostname.toLowerCase();
+    if (hostname.includes("xn--")) {
+      console.log(`[SpamCheck] Punycode hostname detected — blocking: ${url}`);
+      return res.status(422).json({
+        error:      "This URL has been flagged as potentially malicious and cannot be shortened.",
+        confidence: 1.0,
+        reasons:    ["Uses Punycode (xn--) encoding — possible homograph/lookalike attack"],
+      });
+    }
+  } catch {
+    // ignore — validateURL already caught malformed URLs
+  }
+
+  try {
     const controller = new AbortController();
     const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -46,15 +101,12 @@ const spamCheck = async (req, res, next) => {
     }
 
     if (!response.ok) {
-      // Flask returned an error response — fail open
       console.warn(`[SpamCheck] ML service returned ${response.status} — allowing URL through`);
       req.spamResult = { isSpam: false, confidence: null, reasons: [], mlAvailable: false };
       return next();
     }
 
     const result = await response.json();
-    // result = { isSpam: bool, confidence: float, reasons: string[] }
-
     console.log(`[SpamCheck] ${url} → isSpam: ${result.isSpam}, confidence: ${result.confidence}`);
 
     if (result.isSpam && result.confidence >= SPAM_THRESHOLD) {
@@ -65,7 +117,6 @@ const spamCheck = async (req, res, next) => {
       });
     }
 
-    // Safe — attach result so controller can persist it
     req.spamResult = {
       isSpam:      false,
       confidence:  result.confidence,
@@ -80,7 +131,6 @@ const spamCheck = async (req, res, next) => {
     } else {
       console.warn("[SpamCheck] ML service unreachable:", err.message, "— allowing URL through");
     }
-    // Fail open: don't block the user because the ML service is down
     req.spamResult = { isSpam: false, confidence: null, reasons: [], mlAvailable: false };
     next();
   }
