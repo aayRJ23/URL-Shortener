@@ -510,11 +510,69 @@ body {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ─── Footer ─────────────────────────────────────────────── */
+/* ─── Footer ─────────────────────────────────────────────── */
 .footer {
   text-align: center;
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.footer-credit {
+  font-size: 0.82rem;
+  color: var(--text);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.footer-heart {
+  font-size: 0.9rem;
+  animation: heartbeat 1.6s ease-in-out infinite;
+}
+
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1); }
+  15%       { transform: scale(1.25); }
+  30%       { transform: scale(1); }
+  45%       { transform: scale(1.15); }
+}
+
+.footer-author {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.footer-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.footer-logo {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 0.9rem;
+  letter-spacing: -0.5px;
+  color: var(--text);
+}
+
+.footer-dot { color: var(--border); }
+
+.footer-tagline { color: var(--muted); }
+
+.footer-copy {
+  font-size: 0.72rem;
   color: #c0c0bb;
-  margin-top: 32px;
+  margin-top: 2px;
 }
 
 /* ─── Header user area ───────────────────────────────────── */
@@ -522,31 +580,86 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  margin-top: 12px;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
 }
 
-.header-username {
-  font-size: 0.82rem;
-  font-weight: 600;
+/* Pill badge showing avatar + name */
+.header-user__pill {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--white);
+  border: 1.5px solid var(--border);
+  border-radius: 99px;
+  padding: 5px 14px 5px 6px;
+  box-shadow: var(--shadow-sm);
+}
+
+.header-user__avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  letter-spacing: 0;
+}
+
+.header-user__info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.header-user__label {
+  font-size: 0.66rem;
   color: var(--muted);
-  font-family: 'DM Mono', monospace, sans-serif;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
+.header-user__name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+}
+
+/* Redesigned logout button */
 .btn-logout {
-  padding: 5px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
   border-radius: 99px;
   border: 1.5px solid var(--border);
-  background: transparent;
+  background: var(--white);
   font-family: 'DM Sans', sans-serif;
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
   color: var(--muted);
   transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
 }
 
-.btn-logout:hover { border-color: var(--red); color: var(--red); }
+.btn-logout:hover {
+  border-color: #fca5a5;
+  color: var(--red);
+  background: #fff5f5;
+  box-shadow: 0 2px 8px rgba(220,38,38,0.10);
+  transform: translateY(-1px);
+}
+
+.btn-logout:active { transform: translateY(0); }
 
 /* ─── Auth card extras ───────────────────────────────────── */
 .card--auth { max-width: 480px; margin: 0 auto; }

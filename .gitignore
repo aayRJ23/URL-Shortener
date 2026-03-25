@@ -1,10 +1,18 @@
+# Node
 node_modules/
 client/node_modules/
 api/node_modules/
 
+# Environment files
 .env
+.env.*
 client/.env
 api/.env
 
-.env
-.env.*
+# Python
+venv/
+ml_service/venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
