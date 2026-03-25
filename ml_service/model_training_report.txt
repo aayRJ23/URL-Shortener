@@ -1,0 +1,75 @@
+============================================================
+  PHISHING URL CLASSIFIER — TRAINING REPORT (v2: URL-only)
+============================================================
+
+───────────────────────── Dataset ─────────────────────────
+  File          : dataset_phishing.csv
+  Feature mode  : URL-only (55 features)
+  Total samples : 11,430
+  Phishing      : 5,715  (50.0%)
+  Legitimate    : 5,715  (50.0%)
+  Features      : 55
+  Train split   : 9,144 (80%)
+  Test split    : 2,286  (20%)
+
+───────────────────────── Training ─────────────────────────
+  Algorithm     : Random Forest
+  Trees         : 200
+  Max depth     : 20
+  Class weight  : balanced
+  Status        : training …
+  Done in       : 0.4s
+
+─────────── Evaluation — Hold-out Test Set (20%) ───────────
+
+  Accuracy      :  91.12%   ████████████████████████████████████░░░░
+  ROC-AUC       :  97.05%   ███████████████████████████████████████░
+  Precision     :  90.87%   ████████████████████████████████████░░░░
+  Recall        :  91.43%   █████████████████████████████████████░░░
+  F1-Score      :  91.15%   ████████████████████████████████████░░░░
+
+  Confusion Matrix:
+                   Predicted
+                Legit   Phishing
+  Actual Legit    1038      105
+  Actual Phish      98     1045
+
+  False Positives (legit flagged as phish): 105
+  False Negatives (phish missed)          : 98
+
+  Full Classification Report:
+              precision    recall  f1-score   support
+
+  legitimate       0.91      0.91      0.91      1143
+    phishing       0.91      0.91      0.91      1143
+
+    accuracy                           0.91      2286
+   macro avg       0.91      0.91      0.91      2286
+weighted avg       0.91      0.91      0.91      2286
+
+
+───────────────── 5-Fold Cross-Validation ─────────────────
+  Running 5-fold CV on full dataset …
+  Fold scores   : 92.08% | 90.99% | 90.59% | 91.03% | 89.90%
+  Mean          : 90.92%
+  Std dev       : ±0.71%
+
+──────────────── Top 15 Feature Importances ────────────────
+   1. nb_www                              0.0899  ██████████████████████████████
+   2. phish_hints                         0.0722  ████████████████████████░░░░░░
+   3. longest_word_path                   0.0605  ████████████████████░░░░░░░░░░
+   4. length_url                          0.0508  █████████████████░░░░░░░░░░░░░
+   5. length_hostname                     0.0470  ████████████████░░░░░░░░░░░░░░
+   6. longest_words_raw                   0.0459  ███████████████░░░░░░░░░░░░░░░
+   7. char_repeat                         0.0445  ███████████████░░░░░░░░░░░░░░░
+   8. ratio_digits_url                    0.0441  ███████████████░░░░░░░░░░░░░░░
+   9. shortest_word_host                  0.0430  ██████████████░░░░░░░░░░░░░░░░
+  10. length_words_raw                    0.0414  ██████████████░░░░░░░░░░░░░░░░
+  11. nb_hyphens                          0.0381  █████████████░░░░░░░░░░░░░░░░░
+  12. nb_slash                            0.0356  ████████████░░░░░░░░░░░░░░░░░░
+  13. nb_dots                             0.0348  ████████████░░░░░░░░░░░░░░░░░░
+  14. avg_word_path                       0.0345  ████████████░░░░░░░░░░░░░░░░░░
+  15. avg_words_raw                       0.0317  ███████████░░░░░░░░░░░░░░░░░░░
+
+────────────────────────── Saving ──────────────────────────
+  Model saved   → model.pkl

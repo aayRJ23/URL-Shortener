@@ -181,7 +181,7 @@ def main():
     joblib.dump(clf, args.model)
     _log(f"  Model saved   → {args.model}", lines)
 
-    with open(args.report, "w") as f:
+    with open(args.report, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     _log(f"  Report saved  → {args.report}", lines)
 
